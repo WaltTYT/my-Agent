@@ -58,8 +58,8 @@ def test_accept_edits_mode_allows_new_files():
 
 def test_project_rules_deny_beats_allow(isolated_env):
     settings = {"permissions": {"allow": ["run_shell(git *)"], "deny": ["run_shell(git push*)"]}}
-    (isolated_env / ".bear").mkdir()
-    (isolated_env / ".bear" / "settings.json").write_text(json.dumps(settings))
+    (isolated_env / ".lily").mkdir()
+    (isolated_env / ".lily" / "settings.json").write_text(json.dumps(settings))
     reset_permission_cache()
     assert check_permission("run_shell", {"command": "git push origin main"})["action"] == "deny"
     assert check_permission("run_shell", {"command": "git status"})["action"] == "allow"

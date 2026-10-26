@@ -263,7 +263,7 @@ class Agent:
 
     #生成一个用于保存 AI 计划（Plan）的 Markdown 文件的绝对路径。
     def _generate_plan_file_path(self) -> str:
-        d = Path.home() / ".bear" / "plans"
+        d = Path.home() / ".lily" / "plans"
         d.mkdir(parents=True, exist_ok=True)
         return str(d / f"plan-{self.session_id}.md")
 
@@ -381,14 +381,14 @@ class Agent:
             self._system_prompt = self._base_system_prompt
             if self.use_openai and self._openai_messages:
                 self._openai_messages[0]["content"] =self._system_prompt
-            print_info(f"Exited plan mode -> {self.permission_mode} mode")
+            print_info(f"已退出计划模式 → {self.permission_mode} 模式")
             return self.permission_mode
         else:
             self._pre_plan_mode = self.permission_mode
             self.permission_mode = "plan"
             self._plan_file_path = self._generate_plan_file_path()
             self._system_prompt = self._base_system_prompt + self._build_plan_mode_prompt()
-            print_info(f"Entered plan mode. Plan file: {self._plan_file_path}")
+            print_info(f"已进入计划模式。计划文件：{self._plan_file_path}")
             return "plan"
 
     def get_token_usage(self) -> dict:
@@ -406,7 +406,7 @@ class Agent:
                 if mcp_defs:
                     self.tools = self.tools + mcp_defs
             except Exception as e:
-                print_error(f"MCP init failed: {e}")
+                print_error(f"MCP 初始化失败：{e}")
 
         original_user_message = _safe_utf8_text(user_message)
         ready_skill_extraction_window: dict[str, Any] | None = None
@@ -588,7 +588,7 @@ class Agent:
         return self.permission_mode in {"bypassPermissions", "acceptEdits"}
 
     def _online_evolution_enabled(self) -> bool:
-        raw = os.environ.get("BEAR_AUTO_SKILL_EVOLUTION", "1").strip().lower()
+        raw = os.environ.get("LILY_AUTO_SKILL_EVOLUTION", "1").strip().lower()
         return raw not in {"0", "false", "no", "off"}
 
     def _schedule_background_skill_task(self, coro) -> None:
@@ -672,14 +672,14 @@ class Agent:
             retrieved_reference=window.get("retrieved_reference") or None,
             hint=str(window.get("hint") or ""),
             confirm_write=self._confirm_online_skill_write if interactive_confirm else self._confirm_background_online_skill_write,
-            target=os.environ.get("BEAR_AUTO_SKILL_TARGET", "project"),
+            target=os.environ.get("LILY_AUTO_SKILL_TARGET", "project"),
         )
         if result.get("ok"):
             if result.get("action") in {"add", "merge"}:
                 self._refresh_runtime_system_prompt()
-                print_info(f"Online skill {result.get('action')}: {result.get('skill')}")
+                print_info(f"在线技能已{'合并' if result.get('action') == 'merge' else '新增'}：{result.get('skill')}")
         elif result.get("action") not in {"add_denied", "merge_denied"}:
-            print_error(f"Online skill evolution failed: {result.get('error') or result}")
+            print_error(f"在线技能进化失败：{result.get('error') or result}")
 
     async def _run_skill_usage_tracking(self, original_user_message: str, assistant_text: str) -> None:
         if not self._online_evolution_enabled() or self.permission_mode == "plan":
@@ -731,14 +731,14 @@ class Agent:
         self.total_input_tokens = 0
         self.total_output_tokens = 0
         self.last_input_token_count = 0
-        print_info("Conversation cleared.")
+        print_info("对话已清空。")
 
     def show_cost(self):
         total = self._get_current_cost_usd()
-        budget_info = f" / ${self.max_cost_usd} budget" if self.max_cost_usd else ""
-        turn_info = f" | Turns: {self.current_turns}/{self.max_turns}" if self.max_turns else ""
+        budget_info = f" / 预算 ${self.max_cost_usd}" if self.max_cost_usd else ""
+        turn_info = f" | 轮数：{self.current_turns}/{self.max_turns}" if self.max_turns else ""
         print_info(
-            f"Tokens: {self.total_input_tokens} in / {self.total_output_tokens} out\n  Estimated cost: ${total:.4f}{budget_info}{turn_info}")
+            f"Token：输入 {self.total_input_tokens} / 输出 {self.total_output_tokens}\n  预估费用：${total:.4f}{budget_info}{turn_info}")
 
     #获取当前的花费，
     def _get_current_cost_usd(self) -> float:
@@ -747,16 +747,16 @@ class Agent:
     #检查预算
     def _check_budget(self) -> dict:
         if self.max_cost_usd is not None and self._get_current_cost_usd() >= self.max_cost_usd:
-            return {"exceeded": True, "reason": f"Cost limit reached (${self._get_current_cost_usd():.4f} >= ${self.max_cost_usd})"}
+            return {"exceeded": True, "reason": f"已达费用上限（${self._get_current_cost_usd():.4f} >= ${self.max_cost_usd}）"}
         if self.max_turns is not None and self.current_turns >= self.max_turns:
-            return {"exceeded": True, "reason": f"Turn limit reached ({self.current_turns} >= {self.max_turns})"}
+            return {"exceeded": True, "reason": f"已达轮数上限（{self.current_turns} >= {self.max_turns}）"}
         return {"exceeded": False}
 
     #压缩会话
     async def compact(self)->None:
         compacted = await self._compact_conversation(trigger="manual")
         if not compacted:
-            print_info("Nothing to compact yet.")
+            print_info("暂无需要压缩的内容。")
 
 
     #恢复会话信息
@@ -767,7 +767,7 @@ class Agent:
             self._openai_messages = _sanitize_for_utf8(data["openaiMessages"])
         if isinstance(data.get("foldedSessionMemories"), list):
             self._folded_session_memories = _sanitize_for_utf8(data["foldedSessionMemories"])
-        print_info(f"Session restored ({self._get_message_count()} messages).")
+        print_info(f"会话已恢复（{self._get_message_count()} 条消息）。")
 
 
 
@@ -846,7 +846,7 @@ class Agent:
     #自动压缩
     async def _check_and_compact(self)->None:
         if self.last_input_token_count > self.effective_window * AUTO_COMPACT_THRESHOLD:
-            print_info("Context window filling up, compacting conversation...")
+            print_info("上下文窗口即将占满，正在压缩对话……")
             await self._compact_conversation(trigger="auto")
 
     async def _compact_conversation(self, *, trigger: str = "manual")->bool:
@@ -855,7 +855,7 @@ class Agent:
         else:
             compacted = await self._compact_anthropic(trigger=trigger)
         if compacted:
-            print_info("Conversation compacted.")
+            print_info("对话已压缩。")
         return compacted
 
     async def _compact_anthropic(self, *, trigger: str)->bool:
@@ -1072,7 +1072,7 @@ class Agent:
         if (len (result.encode())) <= THRESHOLD:
             return result
 
-        d = Path.home() / ".bear-code" / "tool-results"
+        d = Path.home() / ".lily-data" / "tool-results"
         d.mkdir(parents=True, exist_ok=True)
         filename = f"{int(time.time() * 1000)}-{tool_name}.txt"
         filepath = d / filename
@@ -1179,7 +1179,7 @@ class Agent:
             self._system_prompt = self._base_system_prompt + self._build_plan_mode_prompt()
             if self.use_openai and self._openai_messages:
                 self._openai_messages[0]["content"] = self._system_prompt
-            print_info("Entered plan mode (read-only). Plan file: " + self._plan_file_path)
+            print_info("已进入计划模式（只读）。计划文件：" + self._plan_file_path)
             return f"Entered plan mode. You are now in read-only mode.\n\nYour plan file: {self._plan_file_path}\nWrite your plan to this file. This is the only file you can edit.\n\nWhen your plan is complete, call exit_plan_mode."
         if name == "exit_plan_mode":
             if self.permission_mode != "plan":
@@ -1219,14 +1219,14 @@ class Agent:
                 if choice == "clear-and-execute":
                     self._clear_history_keep_system()
                     self._context_cleared = True
-                    print_info(f"Plan approved. Context cleared, executing in {target_mode} mode.")
+                    print_info(f"计划已批准。上下文已清空，以 {target_mode} 模式执行。")
                     return (
                         f"User approved the plan. Context was cleared. Permission mode: {target_mode}\n\n"
                         f"Plan file: {saved_plan_path}\n\n"
                         f"## Approved Plan:\n{plan_content}\n\n"
                         f"Proceed with implementation."
                     )
-                print_info(f"Plan approved. Executing in {target_mode} mode.")
+                print_info(f"计划已批准。以 {target_mode} 模式执行。")
                 return (
                     f"User approved the plan. Permission mode: {target_mode}\n\n"
                     f"## Approved Plan:\n{plan_content}\n\n"
@@ -1240,7 +1240,7 @@ class Agent:
             if self.use_openai and self._openai_messages:
                 self._openai_messages[0]["content"] = self._system_prompt
 
-            print_info("Exited plan mode. Restored to " + self.permission_mode + " mode.")
+            print_info("已退出计划模式。恢复到 " + self.permission_mode + " 模式。")
             return f"Exited plan mode. Permission mode restored to: {self.permission_mode}\n\n## Your Plan:\n{plan_content}"
 
         return f"Unknown plan mode tool: {name}"
@@ -1387,7 +1387,7 @@ class Agent:
             self.current_turns += 1
             budget = self._check_budget()
             if budget["exceeded"]:
-                print_info(f"Budget exceeded: {budget['reason']}")
+                print_info(f"超出预算：{budget['reason']}")
                 self._anthropic_messages.append({
                     "role": "user",
                     "content": [
@@ -1434,7 +1434,7 @@ class Agent:
                 perm = check_permission(tu.name, inp, self.permission_mode, self._plan_file_path)
                 if perm["action"] == "deny":
                     # 权限拒绝时，也要返回一个 tool_result，让模型知道该工具调用失败的原因。
-                    print_info(f"Denied: {perm.get('message', '')}")
+                    print_info(f"已拒绝：{perm.get('message', '')}")
                     self._record_tool_outcome(tu.name, False)
                     tool_results.append({"type": "tool_result", "tool_use_id": tu.id,
                                          "content": f"Action denied: {perm.get('message', '')}"})
@@ -1648,7 +1648,7 @@ class Agent:
             self.current_turns += 1
             budget = self._check_budget()
             if budget["exceeded"]:
-                print_info(f"Budget exceeded: {budget['reason']}")
+                print_info(f"超出预算：{budget['reason']}")
                 break
 
             oai_checked: list[dict] = []
@@ -1670,7 +1670,7 @@ class Agent:
                 perm = check_permission(fn_name, inp, self.permission_mode, self._plan_file_path)
 
                 if perm["action"] == "deny":
-                    print_info(f"Denied: {perm.get('message', '')}")
+                    print_info(f"已拒绝：{perm.get('message', '')}")
                     self._record_tool_outcome(fn_name, False)
                     oai_checked.append({"tc": tc, "fn": fn_name, "inp": inp, "allowed": False,
                                         "result": f"Action denied: {perm.get('message', '')}"})
@@ -1821,7 +1821,7 @@ class Agent:
             return await self.confirm_fn(command)
         # Fallback: blocking input
         try:
-            answer = input("  Allow? (y/n): ")
+            answer = input("  是否允许？(y/n): ")
             return answer.lower().startswith("y")
         except EOFError:
             return False

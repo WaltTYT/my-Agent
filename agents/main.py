@@ -42,7 +42,7 @@ from .online_skill_eval import format_online_skill_eval_async
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="mini-claude",
-        description="Bear Code — a minimal coding agent",
+        description="Lily — a minimal coding agent",
         add_help=False,
     )
     parser.add_argument("prompt", nargs="*", help="One-shot prompt")
@@ -128,7 +128,7 @@ async def run_repl(agent: Agent) -> None:
 
     async def confirm_fn(message: str) -> bool:
         try:
-            answer = input("  Allow? (y/n): ")
+            answer = input("  是否允许？(y/n): ")
             return answer.lower().startswith("y")
         except EOFError:
             return False
@@ -140,7 +140,7 @@ async def run_repl(agent: Agent) -> None:
         print_plan_approval_options()
         while True:
             try:
-                choice = input("  Enter choice (1-4): ").strip()
+                choice = input("  请输入选项编号 (1-4): ").strip()
             except EOFError:
                 return {"choice": "manual-execute"}
             if choice == "1":
@@ -151,12 +151,12 @@ async def run_repl(agent: Agent) -> None:
                 return {"choice": "manual-execute"}
             elif choice == "4":
                 try:
-                    feedback = input("  Feedback (what to change): ").strip()
+                    feedback = input("  反馈（需要改什么）: ").strip()
                 except EOFError:
                     feedback = ""
                 return {"choice": "keep-planning", "feedback": feedback or None}
             else:
-                print_warning("Invalid choice. Enter 1, 2, 3, or 4.")
+                print_warning("无效选项。请输入 1、2、3 或 4。")
 
     agent.set_plan_approval_fn(plan_approval_fn)
 
@@ -175,7 +175,7 @@ async def run_repl(agent: Agent) -> None:
             if sigint_count >= 2:
                 print_goodbye()
                 sys.exit(0)
-            print_warning("Press Ctrl+C again to exit.")
+            print_warning("再按一次 Ctrl+C 退出。")
             print_user_prompt()
 
     signal.signal(signal.SIGINT, handle_sigint)
@@ -217,14 +217,14 @@ async def run_repl(agent: Agent) -> None:
         if inp == "/memory":
             memories = list_memories()
             if not memories:
-                print_info("No memories saved yet.")
+                print_info("还没有保存任何记忆。")
             else:
                 print_memory_entries(memories)
             continue
         if inp == "/skills":
             skills = discover_skills()
             if not skills:
-                print_info("No skills found. Add skills to .bear/skills/<name>/SKILL.md")
+                print_info("未找到技能。请将技能添加到 .lily/skills/<名称>/SKILL.md")
             else:
                 print_skill_entries(skills)
             continue
@@ -239,7 +239,7 @@ async def run_repl(agent: Agent) -> None:
             hint = inp[len("/extract_now") :].strip()
             result = await agent.extract_now(hint)
             if result.get("ok"):
-                print_info("Ran online skill extraction for the current pending window.")
+                print_info("已对当前待处理的在线技能窗口执行提取。")
             else:
                 print_error(str(result.get("error") or result))
             continue
@@ -247,21 +247,21 @@ async def run_repl(agent: Agent) -> None:
             _, rest = inp.split(" ", 1)
             parts = rest.strip().split(" ", 2)
             if len(parts) < 2:
-                print_error("Usage: /skill-feedback <skill-name> <rating> [note]")
+                print_error("用法：/skill-feedback <技能名> <评分> [备注]")
                 continue
             note = parts[2] if len(parts) > 2 else ""
             record_feedback(parts[0], parts[1], note)
-            print_info(f"Recorded feedback for skill: {parts[0]}")
+            print_info(f"已记录技能反馈：{parts[0]}")
             continue
         if inp.startswith("/skill-evolve "):
             _, rest = inp.split(" ", 1)
             parts = rest.strip().split(" ", 1)
             if len(parts) < 2:
-                print_error("Usage: /skill-evolve <skill-name> <durable lesson>")
+                print_error("用法：/skill-evolve <技能名> <可沉淀的经验>")
                 continue
             result = evolve_skill(parts[0], parts[1], rationale="Manual REPL evolution", target="active")
             if result.get("ok"):
-                print_info(f"Evolved skill {result.get('skill')} to version {result.get('version')}")
+                print_info(f"技能 {result.get('skill')} 已进化到版本 {result.get('version')}")
             else:
                 print_error(str(result.get("error") or result))
             continue
@@ -269,7 +269,7 @@ async def run_repl(agent: Agent) -> None:
             _, rest = inp.split(" ", 1)
             parts = [part.strip() for part in rest.split("|", 3)]
             if len(parts) < 4 or not all(parts[:4]):
-                print_error("Usage: /skill-create <name> | <description> | <when-to-use> | <instructions>")
+                print_error("用法：/skill-create <名称> | <描述> | <何时使用> | <指令>")
                 continue
             result = create_skill(
                 name=parts[0],
@@ -282,7 +282,7 @@ async def run_repl(agent: Agent) -> None:
                 evidence="Manual REPL skill creation",
             )
             if result.get("ok"):
-                print_info(f"Created skill {result.get('skill')} at {result.get('file')}")
+                print_info(f"已创建技能 {result.get('skill')}：{result.get('file')}")
             else:
                 print_error(str(result.get("error") or result))
             continue
@@ -294,14 +294,14 @@ async def run_repl(agent: Agent) -> None:
             cmd_args = inp[space_idx + 1:] if space_idx > 0 else ""
             skill = get_skill_by_name(cmd_name)
             if skill and skill.user_invocable:
-                print_info(f"Invoking skill: {skill.name}")
+                print_info(f"正在调用技能：{skill.name}")
                 try:
                     if skill.context == "fork":
                         await agent.chat(f'Use the skill tool to invoke "{skill.name}" with args: {cmd_args or "(none)"}')
                     else:
                         result = execute_skill(skill.name, cmd_args)
                         if not result:
-                            print_error(f"Unknown skill: {skill.name}")
+                            print_error(f"未知技能：{skill.name}")
                             continue
                         await agent.chat(result["prompt"])
                 except Exception as e:
@@ -330,39 +330,39 @@ def main() -> None:
     _load_env_file()
 
     if args.help:
-        # 自定义帮助文本，展示 Bear Code 支持的启动参数和 REPL 内置命令。
+        # 自定义帮助文本，展示 Lily 支持的启动参数和 REPL 内置命令。
         print("""
-Usage: bear-code [options] [prompt]
+用法：lily [选项] [提示词]
 
-Options:
-  --yolo, -y          Skip all confirmation prompts (bypassPermissions mode)
-  --plan              Plan mode: read-only, describe changes without executing
-  --accept-edits      Auto-approve file edits, still confirm dangerous shell
-  --dont-ask          Auto-deny anything needing confirmation (for CI)
-  --thinking          Enable extended thinking (Anthropic only)
-  --model, -m         Model to use (default: deepseek-chat, or MODEL env)
-  --api-base URL      Override API base URL from CLI or .env
-  --resume            Resume the last session
-  --max-cost USD      Stop when estimated cost exceeds this amount
-  --max-turns N       Stop after N agentic turns
-  --help, -h          Show this help
+选项：
+  --yolo, -y          跳过所有确认提示（bypassPermissions 模式）
+  --plan              计划模式：只读，只描述改动不执行
+  --accept-edits      自动批准文件编辑，危险 shell 命令仍需确认
+  --dont-ask          需要确认的操作一律自动拒绝（用于 CI）
+  --thinking          启用扩展思考（仅 Anthropic）
+  --model, -m         指定模型（默认：deepseek-chat，或读取 MODEL 环境变量）
+  --api-base URL      从命令行或 .env 覆盖 API base URL
+  --resume            恢复上一次会话
+  --max-cost USD      预估费用超过该值时停止
+  --max-turns N       智能体轮数达到 N 后停止
+  --help, -h          显示本帮助
 
-REPL commands:
-  /clear              Clear conversation history
-  /plan               Toggle plan mode (read-only <-> normal)
-  /cost               Show token usage and cost
-  /compact            Manually compact conversation
-  /memory             List saved memories
-  /skills             List available skills
-  /skill-stats        Show skill usage and evolution stats
-  /skill-eval         Evaluate online skill evolution quality
-  /extract_now        Extract the current pending online skill window: /extract_now [hint]
-  /skill-feedback     Record feedback: /skill-feedback <skill> <rating> [note]
-  /skill-evolve       Evolve a skill: /skill-evolve <skill> <durable lesson>
-  /skill-create       Create a skill: /skill-create <name> | <description> | <when-to-use> | <instructions>
-  /<skill-name>       Invoke a skill (e.g. /commit "fix types")
+REPL 命令：
+  /clear              清空对话历史
+  /plan               切换计划模式（只读 <-> 普通）
+  /cost               显示 token 用量和费用
+  /compact            手动压缩对话
+  /memory             列出已保存的记忆
+  /skills             列出可用技能
+  /skill-stats        显示技能使用与进化统计
+  /skill-eval         评估在线技能进化质量
+  /extract_now        提取当前待处理的在线技能窗口：/extract_now [提示]
+  /skill-feedback     记录反馈：/skill-feedback <技能> <评分> [备注]
+  /skill-evolve       进化技能：/skill-evolve <技能> <可沉淀的经验>
+  /skill-create       创建技能：/skill-create <名称> | <描述> | <何时使用> | <指令>
+  /<技能名>           调用技能（例如 /commit "fix types"）
 
-Examples:
+示例：
   mini-claude "fix the bug in src/app.ts"
   mini-claude --yolo "run all tests and fix failures"
   mini-claude --plan "how would you refactor this?"
@@ -370,7 +370,7 @@ Examples:
   MODEL=deepseek-chat APIKEY=sk-xxx API=https://api.deepseek.com/anthropic mini-claude "hello"
   MODEL=gpt-4o OPENAI_API_KEY=sk-xxx OPENAI_BASE_URL=https://aihubmix.com/v1 mini-claude "hello"
   mini-claude --resume
-  mini-claude  # starts interactive REPL
+  mini-claude  # 启动交互式 REPL
 """)
         sys.exit(0)
 
@@ -383,10 +383,10 @@ Examples:
     # 没有可用 API key 时无法调用模型，直接提示配置方式并退出。
     if not resolved_api_key:
         print_error(
-            "API key is required.\n"
-            "  Set APIKEY (+ optional API) in .env for generic config,\n"
-            "  or use ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL,\n"
-            "  or use OPENAI_API_KEY / OPENAI_BASE_URL."
+            "缺少 API key。\n"
+            "  可在 .env 中设置 APIKEY（+ 可选 API）作为通用配置，\n"
+            "  或使用 ANTHROPIC_API_KEY / ANTHROPIC_BASE_URL，\n"
+            "  或使用 OPENAI_API_KEY / OPENAI_BASE_URL。"
         )
         sys.exit(1)
 
@@ -414,9 +414,9 @@ Examples:
                     "openaiMessages": session.get("openaiMessages"),
                 })
             else:
-                print_info("No session found to resume.")
+                print_info("未找到可恢复的会话。")
         else:
-            print_info("No previous sessions found.")
+            print_info("没有找到历史会话。")
 
     # 如果命令行后面带了普通文本参数，就拼成一次性 prompt；否则进入交互式 REPL。
     prompt = " ".join(args.prompt) if args.prompt else None

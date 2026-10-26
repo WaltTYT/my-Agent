@@ -39,33 +39,33 @@ COOKIE_BEAR = r"""
 
 
 def print_welcome() -> None:
-    title = Text("MyAgent", style="bold #f6c177")
-    subtitle = Text("Evolvable Coding Agent CLI", style="bold cyan")
+    title = Text("Lily", style="bold #f6c177")
+    subtitle = Text("可进化的智能体 CLI", style="bold cyan")
     cookie = Text(COOKIE_BEAR, style="bold #d19a66")
 
     commands = Table.grid(padding=(0, 2))
     commands.add_column(style="bold cyan", no_wrap=True)
     commands.add_column(style="dim")
-    commands.add_row("/plan", "read-only planning workflow")
-    commands.add_row("/skills", "list reusable skills")
-    commands.add_row("/skill-create", "create a reusable skill")
-    commands.add_row("/skill-stats", "show skill evolution stats")
-    commands.add_row("/memory", "list long-term memories")
-    commands.add_row("/compact", "compact current context")
-    commands.add_row("exit", "quit the session")
+    commands.add_row("/plan", "只读规划工作流")
+    commands.add_row("/skills", "列出可复用技能")
+    commands.add_row("/skill-create", "创建可复用技能")
+    commands.add_row("/skill-stats", "查看技能进化统计")
+    commands.add_row("/memory", "列出长期记忆")
+    commands.add_row("/compact", "压缩当前上下文")
+    commands.add_row("exit", "退出会话")
 
     body = Table.grid()
     body.add_row(Align.center(cookie))
     body.add_row(Align.center(title))
     body.add_row(Align.center(subtitle))
     body.add_row("")
-    body.add_row(Panel(commands, title="Quick Commands", border_style="cyan", box=box.ROUNDED))
+    body.add_row(Panel(commands, title="快捷命令", border_style="cyan", box=box.ROUNDED))
 
     console.print()
     console.print(Panel(
         body,
-        title="[bold #f6c177] MyAgent ready [/bold #f6c177]",
-        subtitle="[dim]Type your request below[/dim]",
+        title="[bold #f6c177] Lily 已就绪 [/bold #f6c177]",
+        subtitle="[dim]请在下方输入你的需求[/dim]",
         border_style="#d19a66",
         box=box.ROUNDED,
         padding=(1, 2),
@@ -74,7 +74,7 @@ def print_welcome() -> None:
 
 
 def print_user_prompt() -> None:
-    console.print("\n[bold #f6c177]MyAgent[/bold #f6c177] [dim]❯[/dim] ", end="")
+    console.print("\n[bold #f6c177]Lily[/bold #f6c177] [dim]❯[/dim] ", end="")
 
 
 def print_assistant_text(text: str) -> None:
@@ -87,12 +87,12 @@ def print_tool_call(name: str, inp: dict) -> None:
     table = Table.grid(padding=(0, 1))
     table.add_column(style="bold yellow", no_wrap=True)
     table.add_column(style="white")
-    table.add_row("tool", f"{icon} {name}")
+    table.add_row("工具", f"{icon} {name}")
     if summary:
-        table.add_row("input", _safe_text(summary))
+        table.add_row("输入", _safe_text(summary))
     console.print(Panel(
         table,
-        title="[bold yellow]Tool Call[/bold yellow]",
+        title="[bold yellow]工具调用[/bold yellow]",
         border_style="yellow",
         box=box.ROUNDED,
         padding=(0, 1),
@@ -107,10 +107,10 @@ def print_tool_result(name: str, result: str) -> None:
     max_len = 500
     truncated = result
     if len(result) > max_len:
-        truncated = result[:max_len] + f"\n  ... ({len(result)} chars total)"
+        truncated = result[:max_len] + f"\n  ……（共 {len(result)} 字符）"
     console.print(Panel(
         _safe_text(truncated),
-        title=f"[dim]{name} result[/dim]",
+        title=f"[dim]{name} 结果[/dim]",
         border_style="dim",
         box=box.ROUNDED,
         padding=(0, 1),
@@ -121,7 +121,7 @@ def _print_file_change_result(_name: str, result: str) -> None:
     lines = result.split("\n")
     console.print(Panel(
         _safe_text(lines[0]),
-        title="[bold green]File Change[/bold green]",
+        title="[bold green]文件变更[/bold green]",
         border_style="green",
         box=box.ROUNDED,
         padding=(0, 1),
@@ -143,13 +143,13 @@ def _print_file_change_result(_name: str, result: str) -> None:
         else:
             console.print(f"[dim]  {line}[/dim]")
     if len(content_lines) > max_display:
-        console.print(f"[dim]  ... ({len(content_lines) - max_display} more lines)[/dim]")
+        console.print(f"[dim]  ……（还有 {len(content_lines) - max_display} 行）[/dim]")
 
 
 def print_error(msg: str) -> None:
     console.print(Panel(
         _safe_text(msg),
-        title="[bold red]Error[/bold red]",
+        title="[bold red]错误[/bold red]",
         border_style="red",
         box=box.ROUNDED,
         padding=(0, 1),
@@ -159,7 +159,7 @@ def print_error(msg: str) -> None:
 def print_confirmation(command: str) -> None:
     console.print(Panel(
         _safe_text(command),
-        title="[bold yellow]Dangerous command[/bold yellow]",
+        title="[bold yellow]危险命令[/bold yellow]",
         border_style="yellow",
         box=box.ROUNDED,
         padding=(0, 1),
@@ -167,7 +167,7 @@ def print_confirmation(command: str) -> None:
 
 
 def print_divider() -> None:
-    console.rule("[dim]turn complete[/dim]", style="dim")
+    console.rule("[dim]本轮完成[/dim]", style="dim")
 
 
 def print_cost(input_tokens: int, output_tokens: int) -> None:
@@ -177,20 +177,20 @@ def print_cost(input_tokens: int, output_tokens: int) -> None:
     table = Table.grid(padding=(0, 2))
     table.add_column(style="cyan")
     table.add_column(style="white")
-    table.add_row("input", f"{input_tokens} tokens")
-    table.add_row("output", f"{output_tokens} tokens")
-    table.add_row("estimate", f"${total:.4f}")
-    console.print(Panel(table, title="Cost", border_style="cyan", box=box.ROUNDED))
+    table.add_row("输入", f"{input_tokens} tokens")
+    table.add_row("输出", f"{output_tokens} tokens")
+    table.add_row("预估", f"${total:.4f}")
+    console.print(Panel(table, title="费用", border_style="cyan", box=box.ROUNDED))
 
 
 def print_retry(attempt: int, max_retries: int, reason: str) -> None:
-    console.print(_safe_text(f"\n  [yellow]↻ Retry {attempt}/{max_retries}: {reason}[/yellow]"))
+    console.print(_safe_text(f"\n  [yellow]↻ 重试 {attempt}/{max_retries}：{reason}[/yellow]"))
 
 
 def print_info(msg: str) -> None:
     console.print(Panel(
         _safe_text(msg),
-        title="[bold cyan]Info[/bold cyan]",
+        title="[bold cyan]信息[/bold cyan]",
         border_style="cyan",
         box=box.ROUNDED,
         padding=(0, 1),
@@ -200,7 +200,7 @@ def print_info(msg: str) -> None:
 def print_warning(msg: str) -> None:
     console.print(Panel(
         _safe_text(msg),
-        title="[bold yellow]Notice[/bold yellow]",
+        title="[bold yellow]提示[/bold yellow]",
         border_style="yellow",
         box=box.ROUNDED,
         padding=(0, 1),
@@ -209,7 +209,7 @@ def print_warning(msg: str) -> None:
 
 def print_goodbye() -> None:
     console.print(Panel(
-        Text("Bye. See you next time in MyAgent.", style="bold #f6c177"),
+        Text("再见，下次 Lily 再会。", style="bold #f6c177"),
         border_style="#d19a66",
         box=box.ROUNDED,
         padding=(0, 1),
@@ -217,7 +217,7 @@ def print_goodbye() -> None:
 
 
 def print_interrupted() -> None:
-    print_warning("Interrupted. Press Ctrl+C again to exit.")
+    print_warning("已中断。再按一次 Ctrl+C 退出。")
 
 
 # ─── Spinner ──────────────────────────────────────────────
@@ -228,7 +228,7 @@ _spinner_thread: threading.Thread | None = None
 _spinner_stop = threading.Event()
 
 
-def start_spinner(label: str = "Thinking") -> None:
+def start_spinner(label: str = "思考中") -> None:
     global _spinner_thread
     if _spinner_thread is not None:
         return
@@ -264,10 +264,10 @@ def print_plan_for_approval(plan_content: str) -> None:
     max_lines = 60
     preview = "\n".join(lines[:max_lines])
     if len(lines) > max_lines:
-        preview += f"\n\n... ({len(lines) - max_lines} more lines)"
+        preview += f"\n\n……（还有 {len(lines) - max_lines} 行）"
     console.print(Panel(
         _safe_text(preview),
-        title="[bold cyan]Plan for Approval[/bold cyan]",
+        title="[bold cyan]待审批的计划[/bold cyan]",
         border_style="cyan",
         box=box.ROUNDED,
         padding=(1, 2),
@@ -279,11 +279,11 @@ def print_plan_approval_options() -> None:
     table.add_column("choice", style="bold yellow", no_wrap=True)
     table.add_column("action", style="white")
     table.add_column("detail", style="dim")
-    table.add_row("1", "Clear context and execute", "fresh start with auto-accept edits")
-    table.add_row("2", "Execute", "keep context, auto-accept edits")
-    table.add_row("3", "Manually approve edits", "keep context, confirm each edit")
-    table.add_row("4", "Keep planning", "provide feedback to revise")
-    console.print(Panel(table, title="[bold yellow]Choose an option[/bold yellow]", border_style="yellow", box=box.ROUNDED))
+    table.add_row("1", "清空上下文并执行", "全新开始，自动接受编辑")
+    table.add_row("2", "执行", "保留上下文，自动接受编辑")
+    table.add_row("3", "逐条确认编辑", "保留上下文，每次编辑都需确认")
+    table.add_row("4", "继续规划", "提供反馈以修订计划")
+    console.print(Panel(table, title="[bold yellow]请选择[/bold yellow]", border_style="yellow", box=box.ROUNDED))
 
 
 # ─── Sub-agent display ──────────────────────────────────────
@@ -292,7 +292,7 @@ def print_plan_approval_options() -> None:
 def print_sub_agent_start(agent_type: str, description: str) -> None:
     console.print(Panel(
         _safe_text(description),
-        title=f"[bold magenta]Sub-agent started: {agent_type}[/bold magenta]",
+        title=f"[bold magenta]子代理启动：{agent_type}[/bold magenta]",
         border_style="magenta",
         box=box.ROUNDED,
         padding=(0, 1),
@@ -301,8 +301,8 @@ def print_sub_agent_start(agent_type: str, description: str) -> None:
 
 def print_sub_agent_end(agent_type: str, _description: str) -> None:
     console.print(Panel(
-        "completed",
-        title=f"[bold magenta]Sub-agent finished: {agent_type}[/bold magenta]",
+        "已完成",
+        title=f"[bold magenta]子代理结束：{agent_type}[/bold magenta]",
         border_style="magenta",
         box=box.ROUNDED,
         padding=(0, 1),
@@ -311,24 +311,24 @@ def print_sub_agent_end(agent_type: str, _description: str) -> None:
 
 def print_memory_entries(memories: list[object]) -> None:
     table = Table(box=box.ROUNDED, header_style="bold cyan", border_style="cyan")
-    table.add_column("Type", style="bold #f6c177", no_wrap=True)
-    table.add_column("Name", style="white")
-    table.add_column("Description", style="dim")
+    table.add_column("类型", style="bold #f6c177", no_wrap=True)
+    table.add_column("名称", style="white")
+    table.add_column("描述", style="dim")
     for m in memories:
         table.add_row(
             _safe_text(getattr(m, "type", "")),
             _safe_text(getattr(m, "name", "")),
             _safe_text(getattr(m, "description", "")),
         )
-    console.print(Panel(table, title="[bold cyan]Memories[/bold cyan]", border_style="cyan", box=box.ROUNDED))
+    console.print(Panel(table, title="[bold cyan]记忆[/bold cyan]", border_style="cyan", box=box.ROUNDED))
 
 
 def print_skill_entries(skills: list[object]) -> None:
     table = Table(box=box.ROUNDED, header_style="bold cyan", border_style="cyan")
-    table.add_column("Skill", style="bold #f6c177", no_wrap=True)
-    table.add_column("Source", style="cyan", no_wrap=True)
-    table.add_column("Mode", style="magenta", no_wrap=True)
-    table.add_column("Description", style="white")
+    table.add_column("技能", style="bold #f6c177", no_wrap=True)
+    table.add_column("来源", style="cyan", no_wrap=True)
+    table.add_column("模式", style="magenta", no_wrap=True)
+    table.add_column("描述", style="white")
     for s in skills:
         name = getattr(s, "name", "")
         tag = f"/{name}" if getattr(s, "user_invocable", False) else name
@@ -338,7 +338,7 @@ def print_skill_entries(skills: list[object]) -> None:
             _safe_text(getattr(s, "context", "")),
             _safe_text(getattr(s, "description", "")),
         )
-    console.print(Panel(table, title="[bold cyan]Skills[/bold cyan]", border_style="cyan", box=box.ROUNDED))
+    console.print(Panel(table, title="[bold cyan]技能[/bold cyan]", border_style="cyan", box=box.ROUNDED))
 
 
 # ─── Tool icons and summaries ───────────────────────────────

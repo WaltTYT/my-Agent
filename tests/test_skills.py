@@ -3,7 +3,7 @@ from agents.skills import discover_skills, reset_skill_cache, retrieve_relevant_
 
 
 def write_skill(root, name, description, body):
-    d = root / ".bear" / "skills" / name
+    d = root / ".lily" / "skills" / name
     d.mkdir(parents=True)
     (d / "SKILL.md").write_text(format_frontmatter({"name": name, "description": description}, body))
 

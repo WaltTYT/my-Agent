@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 import json
 
-SESSION_DIR = Path.home() / ".bear-code" / "sessions"
+SESSION_DIR = Path.home() / ".lily-data" / "sessions"
 
 
 
@@ -16,7 +16,7 @@ def _ensure_dir() -> None:
 
 
 def get_project_session_dir() -> Path:
-    d = Path.cwd() / ".bear" / "sessions"
+    d = Path.cwd() / ".lily" / "sessions"
     d.mkdir(parents=True, exist_ok=True)
     return d
 

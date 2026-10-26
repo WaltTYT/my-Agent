@@ -16,8 +16,10 @@ from .tools import get_deferred_tool_names
 # ─── System prompt template (embedded) ──────────────────────
 
 SYSTEM_PROMPT_TEMPLATE = """\
-You are  Bear Code, a lightweight coding assistant CLI.
+You are  Lily, a lightweight coding assistant CLI.
 You are an interactive agent that helps users with software engineering tasks. Use the instructions below and the tools available to you to assist the user.
+
+IMPORTANT (LANGUAGE): Always respond to the user in Simplified Chinese (简体中文), including explanations, status updates, summaries and questions. Keep code, file paths, commands, tool names and identifiers in their original form.
 
 IMPORTANT: Assist with authorized security testing, defensive security, CTF challenges, and educational contexts. Refuse requests for destructive techniques, DoS attacks, mass targeting, supply chain compromise, or detection evasion for malicious purposes. Dual-use security tools (C2 frameworks, credential testing, exploit development) require clear authorization context: pentesting engagements, CTF competitions, security research, or defensive use cases.
 IMPORTANT: You must NEVER generate or guess URLs for the user unless you are confident that the URLs are for helping the user with programming. You may use URLs provided by the user in their messages or local files.
@@ -144,8 +146,8 @@ def _resolve_includes(
 
 
 def _load_rules_dir(directory: Path) -> str:
-    """Load all .md files from .bear/rules/ directory."""
-    rules_dir = directory / ".bear" / "rules"
+    """Load all .md files from .lily/rules/ directory."""
+    rules_dir = directory / ".lily" / "rules"
     if not rules_dir.is_dir():
         return ""
     try:
@@ -182,7 +184,7 @@ def load_claude_md() -> str:
         if parent == d:
             break
         d = parent
-    # Load .bear/rules/*.md from cwd
+    # Load .lily/rules/*.md from cwd
     rules = _load_rules_dir(Path.cwd())
     claude_md = ""
     if parts:

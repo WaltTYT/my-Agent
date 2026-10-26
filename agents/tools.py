@@ -117,7 +117,7 @@ tool_definitions: list[ToolDef] = [
     },
     {
         "name": "skill",
-        "description": "Invoke a registered skill by name. Skills are prompt templates loaded from .bear/skills/. Returns the skill's resolved prompt to follow.",
+        "description": "Invoke a registered skill by name. Skills are prompt templates loaded from .lily/skills/. Returns the skill's resolved prompt to follow.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -235,6 +235,11 @@ def _resolve_tool_path(raw_path: str, *, must_exist: bool = True) -> Path:
     if path.exists() or not path.is_absolute():
         return path
 
+    # 写入场景：绝对路径的父目录本身存在，说明就是要在该位置创建，直接返回，
+    # 避免下面的回退逻辑把 Desktop 等目录外路径错误重映射到 cwd 下。
+    if not must_exist and path.parent.exists():
+        return path
+
     parts = path.parts
     cwd = Path.cwd()
     for i in range(1, len(parts)):
@@ -251,7 +256,7 @@ def _resolve_tool_path(raw_path: str, *, must_exist: bool = True) -> Path:
 def _read_file(inp:dict) -> str:
     try:
         path = _resolve_tool_path(inp["file_path"])
-        content = path.read_text(errors="replace")
+        content = path.read_text(encoding="utf-8", errors="replace")
         lines = content.split("\n")
         numbered = "\n".join(f"{i + 1:4d} | {line}" for i, line in enumerate(lines))
         return numbered
@@ -262,7 +267,7 @@ def _write_file(inp:dict) -> str:
     try:
         path = _resolve_tool_path(inp["file_path"], must_exist=False)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(inp["content"])
+        path.write_text(inp["content"], encoding="utf-8")
         _auto_update_memory_index(str(path))
         lines = inp["content"].split("\n")
         line_count = len(lines)
@@ -334,7 +339,7 @@ def _generate_diff(old_content: str, old_string: str, new_string: str) -> str:
 def _edit_file(inp: dict) -> str:
     try:
         path = _resolve_tool_path(inp["file_path"])
-        content = path.read_text(errors="replace")
+        content = path.read_text(encoding="utf-8", errors="replace")
 
         actual = _find_actual_string(content, inp["old_string"])
         if not actual:
@@ -345,7 +350,7 @@ def _edit_file(inp: dict) -> str:
             return f"Error: old_string found {occurrences} times in {inp['file_path']}. Must be unique."
 
         new_content = content.replace(actual, inp["new_string"], 1)
-        path.write_text(new_content)
+        path.write_text(new_content, encoding="utf-8")
 
         diff = _generate_diff(content, actual, inp["new_string"])
 
@@ -565,8 +570,8 @@ def load_permission_rules() -> dict:
     allow: list[dict] = []
     deny: list[dict] = []
 
-    user_settings = _load_settings(Path.home() / ".bear" / "settings.json")
-    project_settings = _load_settings(Path.cwd() / ".bear" / "settings.json")
+    user_settings = _load_settings(Path.home() / ".lily" / "settings.json")
+    project_settings = _load_settings(Path.cwd() / ".lily" / "settings.json")
 
     for settings in [user_settings, project_settings]:
         if not settings or "permissions" not in settings:
@@ -624,7 +629,7 @@ def check_permission(
 
     rule_result = _check_permission_rules(tool_name, inp)
     if rule_result == "deny":
-        return {"action": "deny", "message": f"Denied by permission rule for {tool_name}"}
+        return {"action": "deny", "message": f"被 {tool_name} 的权限规则拒绝"}
     if rule_result == "allow":
         return {"action": "allow"}
 
@@ -636,9 +641,9 @@ def check_permission(
             file_path = inp.get("file_path") or inp.get("path")
             if plan_file_path and file_path == plan_file_path:
                 return {"action": "allow"}
-            return {"action": "deny", "message": f"Blocked in plan mode: {tool_name}"}
+            return {"action": "deny", "message": f"计划模式下被阻止：{tool_name}"}
         if tool_name == "run_shell":
-            return {"action": "deny", "message": "Shell commands blocked in plan mode"}
+            return {"action": "deny", "message": "计划模式下禁止执行 shell 命令"}
 
     if tool_name in ("enter_plan_mode", "exit_plan_mode"):
         return {"action": "allow"}
@@ -654,20 +659,20 @@ def check_permission(
         confirm_message = inp.get("command", "")
     elif tool_name == "write_file" and not _resolve_tool_path(inp.get("file_path", ""), must_exist=False).exists():
         needs_confirm = True
-        confirm_message = f"write new file: {inp.get('file_path', '')}"
+        confirm_message = f"写入新文件：{inp.get('file_path', '')}"
     elif tool_name == "edit_file" and not _resolve_tool_path(inp.get("file_path", "")).exists():
         needs_confirm = True
-        confirm_message = f"edit non-existent file: {inp.get('file_path', '')}"
+        confirm_message = f"编辑不存在的文件：{inp.get('file_path', '')}"
     elif tool_name == "skill_evolve":
         needs_confirm = True
-        confirm_message = f"evolve skill: {inp.get('skill_name', '')}"
+        confirm_message = f"进化技能：{inp.get('skill_name', '')}"
     elif tool_name == "skill_create":
         needs_confirm = True
-        confirm_message = f"create skill: {inp.get('name', '')}"
+        confirm_message = f"创建技能：{inp.get('name', '')}"
 
     if needs_confirm:
         if mode == "dontAsk":
-            return {"action": "deny", "message": f"Auto-denied (dontAsk mode): {confirm_message}"}
+            return {"action": "deny", "message": f"自动拒绝（dontAsk 模式）：{confirm_message}"}
         return {"action": "confirm", "message": confirm_message}
 
     return {"action": "allow"}

@@ -83,18 +83,18 @@ def discover_skills() -> list[SkillDefinition]:
         return _cached_skills
 
     skills: dict[str,SkillDefinition] = {}
-    # 用户级 skills 优先级最高：~/.bear/skills/<name>/SKILL.md
-    user_dir = Path.home() / ".bear" / "skills"
+    # 用户级 skills 优先级最高：~/.lily/skills/<name>/SKILL.md
+    user_dir = Path.home() / ".lily" / "skills"
     _load_skills_from_dir(user_dir, "user", skills)
-    # 项目级 skills 优先级较低：<cwd>/.bear/skills/<name>/SKILL.md
-    project_dir = Path.cwd() / ".bear" / "skills"
+    # 项目级 skills 优先级较低：<cwd>/.lily/skills/<name>/SKILL.md
+    project_dir = Path.cwd() / ".lily" / "skills"
     _load_skills_from_dir(project_dir, "project", skills, overwrite=False)
 
     _cached_skills = list(skills.values())
     return _cached_skills
 
 def _load_skills_from_dir( base_dir: Path, source: str, skills:dict[str, SkillDefinition], overwrite: bool = True) -> None:
-    # 只加载目录形式的 skill，不加载 .bear/skills/foo.md 这种单文件形式。
+    # 只加载目录形式的 skill，不加载 .lily/skills/foo.md 这种单文件形式。
     if not base_dir.is_dir():
         return
     for entry in base_dir.iterdir():
@@ -184,7 +184,7 @@ def build_skill_descriptions() -> str:
     lines.append("To invoke a skill programmatically, use the `skill` tool with the skill name and optional arguments.")
     lines.append("")
     lines.append("# Skill Evolution")
-    lines.append("Bear Code has an online skill evolution loop after each assistant response. Do not create or evolve skills during normal task execution unless the user explicitly asks for manual skill maintenance.")
+    lines.append("Lily has an online skill evolution loop after each assistant response. Do not create or evolve skills during normal task execution unless the user explicitly asks for manual skill maintenance.")
     lines.append("If manual maintenance is explicitly requested, call `skill_evolve` only for durable reusable feedback on an existing skill, and call `skill_create` only when no suitable existing skill exists.")
     lines.append("Never create or evolve skills from one-off task content, private secrets, temporary project facts, or assistant-only guesses.")
     return "\n".join(lines)

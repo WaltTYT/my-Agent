@@ -10,8 +10,8 @@ MCP 客户端模块。
 - 每个 MCP 工具都会被包装成 `mcp__serverName__toolName` 形式，避免和本地工具重名。
 
 配置来源：
-- 全局配置：`~/.bear/settings.json`
-- 项目配置：`.bear/settings.json`
+- 全局配置：`~/.lily/settings.json`
+- 项目配置：`.lily/settings.json`
 - Claude Code 约定配置：`.mcp.json`
 
 配置格式示例：
@@ -252,10 +252,10 @@ class McpManager:
                 # 只有初始化和工具发现都成功，才登记为可用连接。
                 self._connections[name] = conn
                 self._tools.extend(server_tools)
-                print_info(f"MCP connected: {name} ({len(server_tools)} tools)")
+                print_info(f"MCP 已连接：{name}（{len(server_tools)} 个工具）")
             except Exception as e:
                 # 单个 Server 失败不影响其他 Server。失败连接需要关闭以清理子进程。
-                print_error(f"MCP failed to connect: {name}: {e}")
+                print_error(f"MCP 连接失败：{name}：{e}")
                 conn.close()
 
     def get_tool_definitions(self) -> list[dict]:
@@ -304,12 +304,12 @@ class McpManager:
         """按优先级加载并合并 MCP Server 配置。"""
         merged: dict[str, dict] = {}
 
-        # 1. 全局配置：~/.bear/settings.json
-        global_path = Path.home() / ".bear" / "settings.json"
+        # 1. 全局配置：~/.lily/settings.json
+        global_path = Path.home() / ".lily" / "settings.json"
         self._merge_config_file(global_path, merged)
 
-        # 2. 当前项目配置：<cwd>/.bear/settings.json
-        project_path = Path.cwd() / ".bear" / "settings.json"
+        # 2. 当前项目配置：<cwd>/.lily/settings.json
+        project_path = Path.cwd() / ".lily" / "settings.json"
         self._merge_config_file(project_path, merged)
 
         # 3. Claude Code 约定配置：<cwd>/.mcp.json

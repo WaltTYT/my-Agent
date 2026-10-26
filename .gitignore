@@ -195,7 +195,7 @@ cython_debug/
 .task_outputs/
 .tasks/
 .teams/
-.bear/skill-evolution/
+.lily/skill-evolution/
 
 # Ruff stuff:
 .ruff_cache/
@@ -230,7 +230,7 @@ analysis_progress.md
 # Local workspace metadata and session history
 .DS_Store
 .idea/
-.bear/sessions/
+.lily/sessions/
 .venv*/
 .playwright-mcp/
 .DS_Store
