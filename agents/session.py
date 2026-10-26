@@ -7,27 +7,16 @@ from pathlib import Path
 from typing import Any
 import json
 
-SESSION_DIR = Path.home() / ".lily-data" / "sessions"
-
-
-
-def _ensure_dir() -> None:
-    SESSION_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def get_project_session_dir() -> Path:
-    d = Path.cwd() / ".lily" / "sessions"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+from .paths import folded_sessions_dir, sessions_dir
 
 
 def save_session(session_id: str, data: dict[str, Any]) -> None:
-    _ensure_dir()
-    (SESSION_DIR / f"{session_id}.json").write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+    path = sessions_dir() / f"{session_id}.json"
+    path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
 
 
 def save_folded_session_memory(session_id: str, record: dict[str, Any]) -> None:
-    d = get_project_session_dir()
+    d = folded_sessions_dir()
     line = json.dumps(record, ensure_ascii=False, default=str)
     with (d / f"{session_id}.folded-memory.jsonl").open("a", encoding="utf-8") as f:
         f.write(line + "\n")
@@ -38,7 +27,7 @@ def save_folded_session_memory(session_id: str, record: dict[str, Any]) -> None:
 
 
 def load_session(session_id: str) -> dict[str, Any] | None:
-    path = SESSION_DIR / f"{session_id}.json"
+    path = sessions_dir() / f"{session_id}.json"
     if not path.exists():
         return None
     try:
@@ -48,9 +37,8 @@ def load_session(session_id: str) -> dict[str, Any] | None:
 
 
 def list_sessions() -> list[dict[str, Any]]:
-    _ensure_dir()
     results = []
-    for f in SESSION_DIR.glob("*.json"):
+    for f in sessions_dir().glob("*.json"):
         try:
             data = json.loads(f.read_text(encoding="utf-8"))
             if "metadata" in data:

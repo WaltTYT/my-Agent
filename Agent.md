@@ -49,7 +49,7 @@
 - **探索**：先读代码再发言；定向查找用 Glob/Grep，跨模块理解用 Explore 代理
 - **规划**：多文件改动或方案不唯一时，先给出计划征得同意
 - **实现**：按现有模块边界改动，新功能优先挂到既有扩展点（新工具 → `tools.py`；新命令 → `main.py` REPL 分发；新规则 → `.lily/rules/`）
-- **验证**：改动后必须运行 `python -m pytest tests -q`（当前基线 30 passed）；涉及 UI 的改动重启 REPL 目测确认
+- **验证**：改动后必须运行 `python -m pytest tests -q`（当前基线 37 passed）；涉及 UI 的改动重启 REPL 目测确认
 
 ### 2.4 代码风格规则
 
@@ -69,7 +69,7 @@
 
 ```
 my-Agent/                      # 项目根（Lily）
-├── agents/                    # 核心源码（唯一 Python 包，13 个模块）
+├── agents/                    # 核心源码（唯一 Python 包，16 个模块）
 │   ├── main.py                # CLI 入口与 REPL 命令分发
 │   ├── agent.py               # 对话循环、工具调度、计划模式
 │   ├── tools.py               # 内置工具、权限确认、路径解析
@@ -77,12 +77,14 @@ my-Agent/                      # 项目根（Lily）
 │   ├── ui.py                  # rich 终端渲染（品牌名 Lily 在此）
 │   ├── memory.py              # 长期记忆
 │   ├── session.py / session_memory.py  # 会话持久化
+│   ├── paths.py               # 运行时数据目录统一入口
 │   ├── skills.py / skill_evolution.py / online_skill_*.py  # 技能系统与进化
 │   ├── subagent.py            # 子代理
 │   ├── mcp_client.py          # MCP 接入
 │   └── frontmatter.py         # YAML frontmatter 解析
 ├── tests/                     # pytest 套件（conftest 含 Windows HOME 重定向）
-├── .lily/                     # 项目级：sessions / skills / rules / settings.json
+├── .lily/                     # 项目级配置与技能：skills / rules / settings.json
+├── memory/                    # 运行时数据根目录（不入库）：sessions / long-term / plans / tool-results / skill-evolution
 ├── .env                       # 模型密钥与端点（不入库）
 ├── start.bat                  # 一键启动脚本
 └── LICENSE / README.md
@@ -109,7 +111,7 @@ my-Agent/                      # 项目根（Lily）
 
 ```powershell
 conda activate my-agent
-python -m pytest tests -q        # 基线：30 passed
+python -m pytest tests -q        # 基线：37 passed
 ```
 
 - 测试不联网（模型调用被 fake 替身替换，见 tests/）
@@ -151,8 +153,12 @@ python -m pytest tests -q        # 基线：30 passed
 
 - conda 环境目录 `D:\study\miniconda\envs\my-agent` 需管理员权限才能写入（已通过 icacls 授权，pip 正常）
 - `.bat` 脚本必须 CRLF + 纯 ASCII 注释，否则 cmd 解析截断
-- 会话/记忆数据在 `.lily/`（项目级）、`~/.lily/`（全局配置）、`~/.lily-data/`（会话与工具结果）、`~/.lily-memory/`（长期记忆），2026-10 已从 bear 系命名统一迁移
-- 原 `data/`、`wiki/` 目录已被用户移走，代码无依赖；`requirements.txt`、`.env.example` 已删除，可从 git 历史恢复
+- 运行时数据统一落在项目内 `memory/`（默认根目录），子目录为 `sessions/`、`sessions/folded/`、`long-term/memory/`、`plans/`、`tool-results/`、`skill-evolution/`；路径全部由 `agents/paths.py` 提供，不要在模块里再拼 `Path.home()`
+- 数据根目录可用环境变量 `LILY_DATA_DIR` 覆盖；指向跨项目共享目录时，不同项目的会话与记忆会混在一起，需要自行分开
+- 配置与技能不属于生成数据，仍在 `~/.lily/`（全局）和项目 `.lily/`（`skills/` 需入库）
+- 2026-10 历史迁移：数据曾散在 `~/.lily-data/`、`~/.lily-memory/`、`~/.lily/plans/` 和项目 `.lily/sessions/`，旧位置已停用，本机 4 个会话文件已搬入 `memory/sessions/`
+- 原 `data/`、`wiki/` 目录已被用户移走，代码无依赖；`.env.example` 已删除，可从 git 历史恢复
+- `requirements.txt` 是 CI 与 Dockerfile 的硬依赖，必须留在仓库根目录，不能挪进 `.doc/` 等未入库位置
 - GLM-4 上下文有限，长会话依赖 `/compact` 与自动压缩
 
 ## 10. Agent 自检清单
@@ -162,7 +168,7 @@ python -m pytest tests -q        # 基线：30 passed
 - [ ] 代码遵循项目约定（4 空格、snake_case、无新增注释）
 - [ ] 未暴露任何机密或凭证（密钥只在 .env）
 - [ ] 所有用户可见文案为简体中文，模型侧描述为英文
-- [ ] `python -m pytest tests -q` 全部通过（基线 30）
+- [ ] `python -m pytest tests -q` 全部通过（基线 37）
 - [ ] 涉及文件读写的改动显式 encoding="utf-8"
 - [ ] 变更最小化且聚焦，未顺手重构无关代码
 - [ ] 提交遵循 8.1 格式，且已获得用户提交/推送许可

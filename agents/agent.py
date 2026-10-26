@@ -16,6 +16,7 @@ import openai
 
 from agents.mcp_client import McpManager
 from agents.memory import MemoryPrefetch, start_memory_prefetch, format_memories_for_injection
+from agents.paths import plans_dir, tool_results_dir
 from agents.prompt import build_system_prompt
 from agents.session_memory import (
     FOLD_SESSION_MEMORY_SYSTEM,
@@ -263,8 +264,7 @@ class Agent:
 
     #生成一个用于保存 AI 计划（Plan）的 Markdown 文件的绝对路径。
     def _generate_plan_file_path(self) -> str:
-        d = Path.home() / ".lily" / "plans"
-        d.mkdir(parents=True, exist_ok=True)
+        d = plans_dir()
         return str(d / f"plan-{self.session_id}.md")
 
     def _build_plan_mode_prompt(self) -> str:
@@ -1072,8 +1072,7 @@ class Agent:
         if (len (result.encode())) <= THRESHOLD:
             return result
 
-        d = Path.home() / ".lily-data" / "tool-results"
-        d.mkdir(parents=True, exist_ok=True)
+        d = tool_results_dir()
         filename = f"{int(time.time() * 1000)}-{tool_name}.txt"
         filepath = d / filename
         filepath.write_text(result, encoding="utf-8")

@@ -231,6 +231,10 @@ analysis_progress.md
 .DS_Store
 .idea/
 .lily/sessions/
+
+# 运行时数据根目录：会话记录、压缩摘要、长期记忆、计划、工具输出
+# 内含完整对话原文，切勿入库
+/memory/
 .venv*/
 .playwright-mcp/
 .DS_Store

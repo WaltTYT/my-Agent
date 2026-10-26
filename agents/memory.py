@@ -12,7 +12,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import re
 import time
@@ -21,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from .frontmatter import parse_frontmatter, format_frontmatter
+from .paths import long_term_dir
 from typing import Callable
 # side query 是一个异步函数：输入 system prompt 和 user prompt，返回模型文本。
 # 这里标成 Any 是为了避免在运行时引入复杂 Awaitable 类型约束。
@@ -47,16 +47,9 @@ class MemoryEntry:
 
 
 
-def _project_hash() -> str:
-    """用当前工作目录生成稳定 hash，让不同项目的记忆互相隔离。"""
-    return hashlib.sha256(str(Path.cwd()).encode()).hexdigest()[:16]
-
-
 def get_memory_dir() -> Path:
-    """返回当前项目的 memory 目录，不存在时自动创建。"""
-    d = Path.home() / ".lily-memory" / "projects" / _project_hash() / "memory"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    """返回当前项目的长期记忆目录。数据根目录默认就在项目内，天然按项目隔离。"""
+    return long_term_dir()
 
 
 def _get_index_path() -> Path:

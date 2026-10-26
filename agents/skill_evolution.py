@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .frontmatter import format_frontmatter, parse_frontmatter
+from .paths import skill_evolution_dir
 
 
 USAGE_LOG = "usage.jsonl"
@@ -20,7 +21,7 @@ HISTORY_DIR = "history"
 
 
 def get_evolution_dir() -> Path:
-    return Path.cwd() / ".lily" / "skill-evolution"
+    return skill_evolution_dir()
 
 
 def _utc_now() -> str:
