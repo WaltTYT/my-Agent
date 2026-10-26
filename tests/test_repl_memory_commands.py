@@ -212,6 +212,18 @@ def test_plans_create_enters_plan_mode_and_chats(monkeypatch):
     assert "memory/plans/添加联网功能.md" in agent.chat_requests[0]
 
 
+def test_plan_exit_command_leaves_plan_mode(monkeypatch):
+    agent = _drive_repl(monkeypatch, ["/plan", "/plan-exit"])
+
+    assert agent.permission_mode == "default"
+
+
+def test_plan_exit_reports_when_not_in_plan_mode(monkeypatch, capsys):
+    _drive_repl(monkeypatch, ["/plan-exit"])
+
+    assert "当前不在计划模式" in capsys.readouterr().out
+
+
 def test_plans_create_requires_a_task(monkeypatch, capsys):
     _drive_repl(monkeypatch, ["/plans-create"])
 

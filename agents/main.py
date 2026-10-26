@@ -336,6 +336,12 @@ async def run_repl(agent: Agent) -> None:
         if inp == "/plan":
             agent.toggle_plan_mode()
             continue
+        if inp == "/plan-exit":
+            if agent.permission_mode != "plan":
+                print_info("当前不在计划模式，无需退出。")
+                continue
+            agent.toggle_plan_mode()
+            continue
         if inp.startswith("/plan "):
             request = inp[len("/plan"):].strip()
             if agent.permission_mode != "plan":
@@ -517,7 +523,8 @@ def main() -> None:
 
 REPL 命令：
   /clear              清空对话历史
-  /plan               切换计划模式（只读 <-> 普通）
+  /plan               进入计划模式（只读）
+  /plan-exit          退出计划模式
   /plans              查看所有任务计划；/plans <文件名> 查看具体计划
   /plans-create       创建计划：/plans-create <任务>
   /cost               显示 token 用量和费用

@@ -56,6 +56,9 @@ MODEL=glm-4
 | 命令 | 说明 |
 |---|---|
 | `/plan` | 进入只读规划工作流 |
+| `/plan-exit` | 退出计划模式 |
+| `/plans` | 查看所有任务计划；`/plans <文件名>` 查看具体计划 |
+| `/plans-create <任务>` | 立即创建按任务命名的计划文件 |
 | `/skills` | 列出可复用技能 |
 | `/skill-create <名称>` | 创建技能 |
 | `/skill-stats` | 查看技能进化统计 |
@@ -92,7 +95,7 @@ tests/                         # pytest 测试套件
 | 长期记忆 | `~/.lily-memory/projects/<项目hash>/memory/` |
 | 技能 / 规则 / MCP 配置 | `.lily/skills`、`.lily/rules`、`.lily/settings.json`（支持用户级 `~/.lily/` 同名目录） |
 | 工具结果缓存 | `~/.lily-data/tool-results/` |
-| 计划文件 | `~/.lily/plans/` |
+| 计划文件 | `memory/plans/` |
 
 ## 测试
 

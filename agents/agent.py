@@ -238,7 +238,8 @@ class Agent:
             if self.is_sub_agent:
                 self._system_prompt = self._base_system_prompt + PLAN_DELEGATE_INSTRUCTIONS
             else:
-                self._plan_file_path = self._generate_plan_file_path()
+                # 计划文件名取自任务描述；--plan 启动时还没有任务，等第一轮对话再命名。
+                self._plan_file_path = None
                 self._system_prompt = self._base_system_prompt + self._build_plan_mode_prompt()
         else:
             self._system_prompt = self._base_system_prompt
@@ -286,14 +287,12 @@ class Agent:
         m = self.model.lower()
         return "opus-4-6" in m or "sonnet-4-6" in m
 
-    #生成一个用于保存 AI 计划（Plan）的 Markdown 文件的绝对路径。
-    def _generate_plan_file_path(self, task: str | None = None) -> str:
+    #生成一个用于保存 AI 计划（Plan）的 Markdown 文件的绝对路径，文件名取自任务描述。
+    def _generate_plan_file_path(self, task: str) -> str:
         d = plans_dir()
-        if task:
-            slug = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "-", task.strip())
-            slug = re.sub(r"\s+", "-", slug).strip(" .-_")[:60].rstrip(" .-_")
-        else:
-            slug = f"plan-{self.session_id}-{uuid.uuid4().hex[:6]}"
+        first_line = next((line.strip() for line in str(task or "").splitlines() if line.strip()), "")
+        slug = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "-", first_line)
+        slug = re.sub(r"\s+", "-", slug).strip(" .-_")[:40].rstrip(" .-_")
         slug = slug or "plan"
 
         candidate = d / f"{slug}.md"
@@ -352,6 +351,58 @@ class Agent:
         normalized["file_path"] = self._plan_file_path
         return normalized
 
+    def _plan_file_instruction(self) -> str:
+        """计划文件已命名就锁定该文件，未命名则让模型按任务在计划目录里新建。"""
+        if self._plan_file_path:
+            return (
+                f"## Plan File: {self._plan_file_path}\n"
+                "The file may not exist yet. Write your plan to it with write_file or edit_file. "
+                "This is the ONLY file you are allowed to edit."
+            )
+        return (
+            "## Plan File: not created yet\n"
+            f"Create the plan as a new Markdown file directly inside {plans_dir()}, named after the task "
+            "(short, no path separators, for example 添加联网功能.md). That first write becomes the plan file "
+            "and is the only file you are allowed to edit. Do not put the plan anywhere else."
+        )
+
+    def _apply_plan_prompt(self) -> None:
+        self._system_prompt = self._base_system_prompt + self._build_plan_mode_prompt()
+        if self.use_openai and self._openai_messages:
+            self._openai_messages[0]["content"] = self._system_prompt
+
+    def _maybe_name_plan_file(self, user_message: str) -> None:
+        """进入计划模式时还没有任务，收到任务描述后才按任务命名计划文件。"""
+        if self.permission_mode != "plan" or self._plan_file_path:
+            return
+        task = self._strip_runtime_injections(user_message)
+        if not task.strip():
+            return
+        self._plan_file_path = self._generate_plan_file_path(task)
+        self._apply_plan_prompt()
+        print_info(f"计划文件：{self._plan_file_path}")
+
+    def _adopt_plan_file_path(self, inp: dict, result: str) -> None:
+        """模型自行命名并写入计划目录后，把它登记为当前计划文件。"""
+        if self.permission_mode != "plan" or self._plan_file_path or self.is_sub_agent:
+            return
+        if not str(result).startswith("Successfully"):
+            return
+        raw_path = inp.get("file_path")
+        if not raw_path:
+            return
+        try:
+            target = Path(str(raw_path)).expanduser()
+            if not target.is_absolute():
+                target = Path.cwd() / target
+            target = target.resolve()
+        except (OSError, ValueError):
+            return
+        if target.parent != plans_dir().resolve():
+            return
+        self._plan_file_path = str(target)
+        self._apply_plan_prompt()
+
     def _build_plan_mode_prompt(self) -> str:
         return f"""
 
@@ -359,8 +410,7 @@ class Agent:
 
     Plan mode is active. You MUST NOT make any edits (except the plan file below), run non-readonly tools, or make any changes to the system.
 
-    ## Plan File Target (not created yet): {self._plan_file_path}
-    This is only a target path. The file is created when you first write the plan using write_file or edit_file. This is the ONLY file you are allowed to edit.
+    {self._plan_file_instruction()}
 
     ## Available Tools in Plan Mode:
     - **Read Tools**: read_file, list_files, grep_search (for exploring code)
@@ -485,13 +535,12 @@ class Agent:
         else:
             self._pre_plan_mode = self.permission_mode
             self.permission_mode = "plan"
-            self._plan_file_path = (
-                self._generate_plan_file_path(task)
-                if task is not None
-                else self._generate_plan_file_path()
-            )
+            self._plan_file_path = self._generate_plan_file_path(task) if task else None
             self._system_prompt = self._base_system_prompt + self._build_plan_mode_prompt()
-            print_info(f"已进入计划模式。计划文件目标路径（尚未创建）：{self._plan_file_path}")
+            if self._plan_file_path:
+                print_info(f"已进入计划模式。计划文件：{self._plan_file_path}")
+            else:
+                print_info("已进入计划模式（只读）。还没有计划文件，输入任务后会按任务命名创建。")
             return "plan"
 
     def get_token_usage(self) -> dict:
@@ -512,6 +561,8 @@ class Agent:
                 print_error(f"MCP 初始化失败：{e}")
 
         original_user_message = _safe_utf8_text(user_message)
+        if not self.is_sub_agent:
+            self._maybe_name_plan_file(original_user_message)
         ready_skill_extraction_window: dict[str, Any] | None = None
         self._last_retrieved_skill_reference = None
         self._last_retrieved_skill_hits = []
@@ -1234,6 +1285,8 @@ class Agent:
         if self._mcp_manager.is_mcp_tool(name):
             return await self._mcp_manager.call_tool(name, inp)
         result = await execute_tool(name, inp, self._read_file_state)
+        if name in {"write_file", "edit_file"}:
+            self._adopt_plan_file_path(inp, result)
         if name in {"skill_create", "skill_evolve"}:
             try:
                 parsed = json.loads(result)
@@ -1327,12 +1380,16 @@ class Agent:
                 return "Already in plan mode."
             self._pre_plan_mode = self.permission_mode
             self.permission_mode = "plan"
-            self._plan_file_path =  self._generate_plan_file_path()
+            self._plan_file_path = None
             self._system_prompt = self._base_system_prompt + self._build_plan_mode_prompt()
             if self.use_openai and self._openai_messages:
                 self._openai_messages[0]["content"] = self._system_prompt
-            print_info("已进入计划模式（只读）。计划文件目标路径（尚未创建）:" + self._plan_file_path)
-            return f"Entered plan mode. You are now in read-only mode.\n\nYour plan file target (not created yet): {self._plan_file_path}\nThe file will be created when you first write the plan. This is the only file you can edit.\n\nWhen your plan is complete, call exit_plan_mode."
+            print_info("已进入计划模式（只读）。计划文件将在写入时按任务命名。")
+            return (
+                "Entered plan mode. You are now in read-only mode.\n\n"
+                f"Create your plan as a new Markdown file directly inside {plans_dir()}, named after the task. "
+                "That is the only file you may edit. When the plan is complete, call exit_plan_mode."
+            )
         if name == "exit_plan_mode":
             if self.permission_mode != "plan":
                 return "Not in plan mode."

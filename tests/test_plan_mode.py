@@ -47,7 +47,7 @@ def in_plan_mode(agent: Agent) -> Agent:
     """复现 toggle_plan_mode 进入计划模式后的状态。"""
     agent.permission_mode = "plan"
     agent._pre_plan_mode = "default"
-    agent._plan_file_path = agent._generate_plan_file_path()
+    agent._plan_file_path = agent._generate_plan_file_path("测试计划")
     agent._system_prompt = agent._base_system_prompt + agent._build_plan_mode_prompt()
     return agent
 
@@ -83,24 +83,35 @@ def test_request_tool_definitions_follows_current_mode():
     assert "save_memory" not in {t["name"] for t in agent._request_tool_definitions()}
 
 
-def test_entering_plan_mode_does_not_create_the_plan_file(tmp_path, monkeypatch):
+def test_entering_plan_mode_without_a_task_defers_the_file_name(tmp_path, monkeypatch):
     agent = make_agent()
-    plan_path = tmp_path / "plan.md"
-    monkeypatch.setattr(agent, "_generate_plan_file_path", lambda: str(plan_path))
+    monkeypatch.setattr(agent_module, "plans_dir", lambda: tmp_path)
 
     assert agent.toggle_plan_mode() == "plan"
-    assert not plan_path.exists()
+    # 通用名（plan-<随机>）永远不会被用到，所以进入计划模式时不再预分配文件名。
+    assert agent._plan_file_path is None
+    assert list(tmp_path.glob("*.md")) == []
 
 
-def test_enter_plan_tool_does_not_create_the_plan_file(tmp_path, monkeypatch):
+def test_plan_file_is_named_after_the_task(tmp_path, monkeypatch):
     agent = make_agent()
-    plan_path = tmp_path / "plan-from-tool.md"
-    monkeypatch.setattr(agent, "_generate_plan_file_path", lambda: str(plan_path))
+    monkeypatch.setattr(agent_module, "plans_dir", lambda: tmp_path)
+
+    agent.toggle_plan_mode("给 Lily 加联网功能")
+
+    assert Path(agent._plan_file_path).name == "给-Lily-加联网功能.md"
+    assert not Path(agent._plan_file_path).exists()
+
+
+def test_enter_plan_tool_defers_the_name_until_the_model_writes(tmp_path, monkeypatch):
+    agent = make_agent()
+    monkeypatch.setattr(agent_module, "plans_dir", lambda: tmp_path)
 
     result = asyncio.run(agent._execute_plan_mode_tool("enter_plan_mode"))
 
-    assert "plan-from-tool.md" in result
-    assert not plan_path.exists()
+    assert agent._plan_file_path is None
+    assert "named after the task" in result
+    assert list(tmp_path.glob("*.md")) == []
 
 
 def test_create_plan_draft_writes_task_content(tmp_path, monkeypatch):
@@ -146,9 +157,9 @@ def test_new_plan_file_can_be_written_without_a_re_read(tmp_path, monkeypatch):
     agent = make_agent()
     agent._read_file_state = {}
     plan_path = tmp_path / "plan-ready-to-write.md"
-    monkeypatch.setattr(agent, "_generate_plan_file_path", lambda: str(plan_path))
+    monkeypatch.setattr(agent, "_generate_plan_file_path", lambda task=None: str(plan_path))
 
-    agent.toggle_plan_mode()
+    agent.toggle_plan_mode("待写入的计划")
     result = asyncio.run(tools.execute_tool(
         "write_file",
         {"file_path": str(plan_path), "content": "# 计划\n"},
@@ -159,19 +170,73 @@ def test_new_plan_file_can_be_written_without_a_re_read(tmp_path, monkeypatch):
     assert plan_path.read_text(encoding="utf-8") == "# 计划\n"
 
 
-def test_each_plan_mode_entry_gets_a_new_file():
+def test_plan_name_is_reused_until_a_file_actually_exists(tmp_path, monkeypatch):
     agent = make_agent()
     agent._read_file_state = {}
+    monkeypatch.setattr(agent_module, "plans_dir", lambda: tmp_path)
 
-    agent.toggle_plan_mode()
+    agent.toggle_plan_mode("同一个任务")
     first_plan = Path(agent._plan_file_path)
     agent.toggle_plan_mode()
-    agent.toggle_plan_mode()
-    second_plan = Path(agent._plan_file_path)
+    agent.toggle_plan_mode("同一个任务")
 
-    assert first_plan != second_plan
+    # 没写过文件的计划模式不该留下垃圾名字，重复进入复用同一个目标。
+    assert Path(agent._plan_file_path) == first_plan
     assert not first_plan.exists()
-    assert not second_plan.exists()
+
+    agent.create_plan_draft("同一个任务")
+    agent.toggle_plan_mode()
+    agent.toggle_plan_mode("同一个任务")
+
+    assert Path(agent._plan_file_path).name == "同一个任务-2.md"
+
+
+def test_first_task_message_names_the_plan_file(tmp_path, monkeypatch):
+    agent = make_agent()
+    agent._custom_system_prompt = None
+    monkeypatch.setattr(agent_module, "plans_dir", lambda: tmp_path)
+    agent.toggle_plan_mode()
+
+    agent._maybe_name_plan_file("我打算给你加一个联网功能")
+
+    assert Path(agent._plan_file_path).name == "我打算给你加一个联网功能.md"
+    assert agent._plan_file_path in agent._system_prompt
+    assert not tmp_path.joinpath("我打算给你加一个联网功能.md").exists()
+
+
+def test_blank_message_does_not_name_the_plan_file(tmp_path, monkeypatch):
+    agent = make_agent()
+    monkeypatch.setattr(agent_module, "plans_dir", lambda: tmp_path)
+    agent.toggle_plan_mode()
+
+    agent._maybe_name_plan_file("   \n ")
+
+    assert agent._plan_file_path is None
+
+
+def test_model_named_plan_file_is_adopted_and_locked(tmp_path, monkeypatch):
+    agent = make_agent()
+    monkeypatch.setattr(agent_module, "plans_dir", lambda: tmp_path)
+    agent.toggle_plan_mode()
+    chosen = tmp_path / "加联网功能.md"
+    chosen.write_text("# 计划\n", encoding="utf-8")
+
+    agent._adopt_plan_file_path({"file_path": str(chosen)}, "Successfully wrote to x (1 lines)")
+
+    assert agent._plan_file_path == str(chosen.resolve())
+    assert str(chosen.resolve()) in agent._system_prompt
+
+
+def test_adopt_ignores_files_outside_the_plans_dir(tmp_path, monkeypatch):
+    agent = make_agent()
+    monkeypatch.setattr(agent_module, "plans_dir", lambda: tmp_path)
+    agent.toggle_plan_mode()
+    stray = tmp_path.parent / "stray-plan.md"
+
+    agent._adopt_plan_file_path({"file_path": str(stray)}, "Successfully wrote to x (1 lines)")
+
+    assert agent._plan_file_path is None
+    assert not stray.exists()
 
 
 def test_plan_mode_subagent_returns_analysis_without_owning_plan_file(monkeypatch):

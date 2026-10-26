@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from agents import tools as tools_module
 from agents.tools import check_permission, is_dangerous, reset_permission_cache
 
 
@@ -21,6 +22,27 @@ def test_plan_mode_allows_writing_the_plan_file_only():
     plan = "/tmp/plan.md"
     assert check_permission("write_file", {"file_path": plan}, mode="plan", plan_file_path=plan)["action"] == "allow"
     assert check_permission("write_file", {"file_path": "other.md"}, mode="plan", plan_file_path=plan)["action"] == "deny"
+
+
+def test_relative_and_absolute_plan_paths_are_the_same_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    plan = tmp_path / "plan.md"
+    assert check_permission("write_file", {"file_path": "plan.md"}, mode="plan", plan_file_path=str(plan))["action"] == "allow"
+
+
+def test_plan_mode_allows_a_model_named_plan_file_before_the_name_is_fixed(tmp_path, monkeypatch):
+    plans = tmp_path / "plans"
+    plans.mkdir()
+    monkeypatch.setattr(tools_module, "plans_dir", lambda: plans)
+
+    named = check_permission("write_file", {"file_path": str(plans / "加联网功能.md")}, mode="plan")
+    elsewhere = check_permission("write_file", {"file_path": "src/app.py"}, mode="plan")
+    memory = check_permission("save_memory", {"name": "x", "file_path": str(plans / "x.md")}, mode="plan")
+
+    assert named["action"] == "allow"
+    assert "加联网功能.md" not in str(memory["message"]) or memory["action"] == "deny"
+    assert elsewhere["action"] == "deny"
+    assert memory["action"] == "deny"
 
 
 @pytest.mark.parametrize(

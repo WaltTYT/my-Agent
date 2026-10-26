@@ -11,6 +11,7 @@ from pathlib import Path
 from tqdm.utils import IS_WIN
 
 from agents.memory import get_memory_dir
+from agents.paths import plans_dir
 
 ToolDef = dict  # Anthropic tool schema dict
 #权限模式
@@ -721,6 +722,31 @@ def _check_permission_rules(tool_name: str, inp: dict) -> str | None:
     return None
 
 
+def _absolute(path: Path) -> Path:
+    return path if path.is_absolute() else Path.cwd() / path
+
+
+def _same_path(left: object, right: object) -> bool:
+    """比较两个路径是否指向同一文件，容忍相对/绝对写法的差异。"""
+    if not left or not right:
+        return False
+    try:
+        return _absolute(Path(str(left))).resolve() == _absolute(Path(str(right))).resolve()
+    except (OSError, ValueError, TypeError):
+        return str(left) == str(right)
+
+
+def _is_plan_file_location(raw_path: object) -> bool:
+    """判断目标是否直接位于计划目录，这是计划模式下唯一允许新建文件的位置。"""
+    if not raw_path:
+        return False
+    try:
+        target = _absolute(Path(str(raw_path)))
+        return target.parent.resolve() == plans_dir().resolve()
+    except (OSError, ValueError, TypeError):
+        return False
+
+
 def check_permission(
     tool_name: str,
     inp: dict,
@@ -743,10 +769,14 @@ def check_permission(
     if mode == "plan":
         if tool_name in EDIT_TOOLS:
             file_path = inp.get("file_path") or inp.get("path")
-            if plan_file_path and file_path == plan_file_path:
+            if plan_file_path and _same_path(file_path, plan_file_path):
+                return {"action": "allow"}
+            # 普通 /plan 不再预分配计划文件名，此时允许模型直接在计划目录里
+            # 新建一份按任务命名的计划；写入成功后会被登记为当前计划文件。
+            if plan_file_path is None and tool_name in {"write_file", "edit_file"} and _is_plan_file_location(file_path):
                 return {"action": "allow"}
             # 光说"被阻止"会让模型直接宣称保存成功，这里必须给出下一步该做什么。
-            target = plan_file_path or "计划文件"
+            target = plan_file_path or str(plans_dir() / "<任务名>.md")
             return {
                 "action": "deny",
                 "message": (
