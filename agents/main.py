@@ -8,11 +8,11 @@ import os
 import re
 import signal
 import sys
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from dotenv import find_dotenv, load_dotenv
 
-from .agent import Agent
 from .ui import (
     print_welcome,
     print_user_prompt,
@@ -38,6 +38,11 @@ from .skills import (
     skill_stats,
 )
 from .online_skill_eval import format_online_skill_eval_async
+
+if TYPE_CHECKING:
+    # 只为类型注解存在。运行时在 main() 里延迟导入，避免 --help 和测试收集
+    # 付 anthropic + openai 两个 SDK 约 4 秒的导入开销。
+    from .agent import Agent
 
 
 def parse_args() -> argparse.Namespace:
@@ -488,6 +493,8 @@ REPL 命令：
         sys.exit(1)
 
     # 创建主 Agent。OpenAI-compatible 和 Anthropic 原生接口使用不同的 base URL 参数名传入。
+    from .agent import Agent
+
     agent = Agent(
         permission_mode=permission_mode,
         model=model,
