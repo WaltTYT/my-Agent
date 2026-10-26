@@ -17,7 +17,7 @@ ToolDef = dict  # Anthropic tool schema dict
 PermissionMode = str  # "default" | "plan" | "acceptEdits" | "bypassPermissions" | "dontAsk"
 
 READ_TOOLS = {"read_file", "list_files", "grep_search", "compact_context"}
-EDIT_TOOLS = {"write_file", "edit_file", "skill_evolve", "skill_create"}
+EDIT_TOOLS = {"write_file", "edit_file", "skill_evolve", "skill_create", "save_memory", "delete_memory"}
 
 
 #并发安全的工具可以并行运行（只读，无副作用）
@@ -183,6 +183,35 @@ tool_definitions: list[ToolDef] = [
                 "evidence": {"type": "string", "description": "Short user-provided evidence showing why this is reusable"},
             },
             "required": ["name", "description", "instructions"],
+        },
+    },
+    {
+        "name": "save_memory",
+        "description": "Save a durable memory entry into the persistent memory system. Prefer this over writing memory files by hand: it builds the filename and frontmatter and keeps MEMORY.md in sync.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Short human-readable title for the memory"},
+                "description": {"type": "string", "description": "One-line summary used when deciding whether to recall this memory"},
+                "type": {
+                    "type": "string",
+                    "enum": ["user", "feedback", "project", "reference"],
+                    "description": "user = role, preferences, knowledge level; feedback = user corrections (include why and how to apply); project = ongoing work, goals, deadlines, decisions; reference = pointer to an external resource",
+                },
+                "content": {"type": "string", "description": "The durable fact itself. Exclude ephemeral task details, code patterns and git history."},
+            },
+            "required": ["name", "description", "type", "content"],
+        },
+    },
+    {
+        "name": "delete_memory",
+        "description": "Delete a memory entry by filename and refresh the MEMORY.md index. Filenames are listed in the memory index injected into your system prompt.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "filename": {"type": "string", "description": "Memory filename such as user_pnpm.md. Path separators are rejected; MEMORY.md cannot be deleted."},
+            },
+            "required": ["filename"],
         },
     },
     {
@@ -751,6 +780,32 @@ async def execute_tool(
             evidence=inp.get("evidence", ""),
         )
         return _truncate_result(json.dumps(result, ensure_ascii=False, indent=2))
+
+    if name == "save_memory":
+        from .memory import save_memory
+
+        mem_type = (inp.get("type") or "").strip()
+        mem_name = (inp.get("name") or "").strip()
+        content = (inp.get("content") or "").strip()
+        if not mem_name or not content:
+            return "Error: name and content are required"
+        try:
+            filename = save_memory(mem_name, (inp.get("description") or "").strip(), mem_type, content)
+        except ValueError as e:
+            return f"Error: {e}"
+        return f"Successfully saved memory: {filename}"
+
+    if name == "delete_memory":
+        from .memory import delete_memory
+
+        filename = (inp.get("filename") or "").strip()
+        if not filename:
+            return "Error: filename is required"
+        if filename == "MEMORY.md":
+            return "Error: MEMORY.md is the generated index and cannot be deleted"
+        if delete_memory(filename):
+            return f"Successfully deleted memory: {filename}"
+        return f"Error: memory file not found: {filename}"
 
     handlers: dict = {
         "write_file": _write_file,

@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 import time
@@ -60,10 +61,25 @@ def _get_index_path() -> Path:
 
 
 def _slugify(text: str) -> str:
-    """把记忆名称转成适合文件名的短 slug。"""
-    s = re.sub(r"[^a-z0-9]+", "_", text.lower())
-    s = s.strip("_")
-    return s[:40]
+    """把记忆名称转成适合文件名的短 slug，返回 (slug, 是否被截断)。
+
+    这里必须保留 Unicode 字母。旧实现只留 a-z0-9，中文名称会被整段剥成下划线再被
+    strip 掉，结果是所有中文记忆都塌缩成同一个文件名并互相覆盖。
+    """
+    s = re.sub(r"\W+", "_", text, flags=re.UNICODE).strip("_")
+    s = re.sub(r"_+", "_", s)
+    truncated = len(s) > 40
+    return s[:40].strip("_"), truncated
+
+
+def _memory_filename(name: str, type: str) -> str:
+    """按名称推导记忆文件名，并保证不同名称不会撞进同一个文件。"""
+    slug, truncated = _slugify(name)
+    if not slug or truncated:
+        # 名称全是符号，或者长到被截断时，补一段哈希区分不同记忆。
+        digest = hashlib.sha1(name.encode("utf-8")).hexdigest()[:8]
+        slug = f"{slug}-{digest}" if slug else digest
+    return f"{type}_{slug}.md"
 
 
 
@@ -99,9 +115,12 @@ def list_memories() -> list[MemoryEntry]:
 
 
 def save_memory(name: str, description: str, type: str, content: str) -> str:
-    """保存一条 memory，并刷新 MEMORY.md 索引。"""
+    """保存一条 memory，并刷新 MEMORY.md 索引。返回写入的文件名。"""
+    # type 决定文件名前缀，非法值会生成无法识别的记忆文件，这里直接拒绝。
+    if type not in VALID_TYPES:
+        raise ValueError(f"invalid memory type {type!r}, expected one of {sorted(VALID_TYPES)}")
     d = get_memory_dir()
-    filename = f"{type}_{_slugify(name)}.md"
+    filename = _memory_filename(name, type)
     text = format_frontmatter({"name": name, "description": description, "type": type}, content)
     (d / filename).write_text(text, encoding="utf-8")
     _update_memory_index()
@@ -109,7 +128,10 @@ def save_memory(name: str, description: str, type: str, content: str) -> str:
 
 
 def delete_memory(filename: str) -> bool:
-    """按文件名删除 memory，删除成功后刷新索引。"""
+    """按文件名删除 memory，删除成功后刷新索引。只接受纯文件名。"""
+    # 这个函数会暴露给模型调用，必须挡住 ../ 之类的路径穿越。
+    if Path(filename).name != filename:
+        return False
     filepath = get_memory_dir() / filename
     if not filepath.exists():
         return False
@@ -129,8 +151,27 @@ def _update_memory_index() -> None:
     _get_index_path().write_text("\n".join(lines), encoding="utf-8")
 
 
+def _index_lists_filenames(index_text: str) -> set[str]:
+    """从 MEMORY.md 里解析出已登记的文件名。索引行格式固定为 - **[name](file.md)** ..."""
+    return set(re.findall(r"\]\(([^)\s]+\.md)\)", index_text))
+
+
+def refresh_memory_index_if_stale() -> bool:
+    """记忆文件被手动增删后 MEMORY.md 会过期，比对文件名集合并按需重建。"""
+    index_path = _get_index_path()
+    d = get_memory_dir()
+    actual = {f.name for f in d.glob("*.md") if f.name != "MEMORY.md"}
+    listed = _index_lists_filenames(index_path.read_text(encoding="utf-8")) if index_path.exists() else set()
+    if actual == listed:
+        return False
+    _update_memory_index()
+    return True
+
+
 def load_memory_index() -> str:
     """读取 MEMORY.md，并在注入 system prompt 前做长度保护。"""
+    # 每次组装 system prompt 都会走到这里，顺手保证索引和磁盘一致。
+    refresh_memory_index_if_stale()
     index_path = _get_index_path()
     if not index_path.exists():
         return ""
@@ -391,7 +432,7 @@ def build_memory_prompt_section() -> str:
     这段说明告诉模型：
     - memory 文件存放在哪里；
     - 有哪些 memory 类型；
-    - 如何通过 write_file 保存 memory；
+    - 如何通过 save_memory 工具保存 memory；
     - 哪些内容不应该保存；
     - 当前 MEMORY.md 索引里有哪些记忆。
     """
@@ -409,21 +450,14 @@ You have a persistent, file-based memory system at `{memory_dir}`.
 - **reference**: Pointers to external resources (URLs, tools, dashboards)
 
 ## How to Save Memories
-Use the write_file tool to create a memory file with YAML frontmatter:
+Call the save_memory tool with name, description, type and content. Do NOT hand-write
+memory files with write_file — the tool builds the filename, the YAML frontmatter and
+keeps the index in sync for you.
 
-```markdown
----
-name: memory name
-description: one-line description
-type: user|feedback|project|reference
----
-Memory content here.
-```
+Valid types: user | feedback | project | reference
 
-Save to: `{memory_dir}/`
-Filename format: `{{type}}_{{slugified_name}}.md`
-
-The MEMORY.md index is auto-updated when you write to the memory directory — do NOT update it manually.
+Memories live in `{memory_dir}/`. To remove one, call delete_memory with the filename
+shown in the index below. Never edit MEMORY.md by hand.
 
 ## What NOT to Save
 - Code patterns or architecture (read the code instead)
