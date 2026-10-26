@@ -239,6 +239,7 @@ class Agent:
                 self._system_prompt = self._base_system_prompt + PLAN_DELEGATE_INSTRUCTIONS
             else:
                 self._plan_file_path = self._generate_plan_file_path()
+                self._ensure_plan_file()
                 self._system_prompt = self._base_system_prompt + self._build_plan_mode_prompt()
         else:
             self._system_prompt = self._base_system_prompt
@@ -290,6 +291,15 @@ class Agent:
     def _generate_plan_file_path(self) -> str:
         d = plans_dir()
         return str(d / f"plan-{self.session_id}.md")
+
+    def _ensure_plan_file(self) -> None:
+        """创建当前计划文件，确保提示的路径立即对应真实文件。"""
+        if not self._plan_file_path:
+            return
+        path = Path(self._plan_file_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if not path.exists():
+            path.write_text("", encoding="utf-8")
 
     def _build_plan_mode_prompt(self) -> str:
         return f"""
@@ -425,6 +435,7 @@ class Agent:
             self._pre_plan_mode = self.permission_mode
             self.permission_mode = "plan"
             self._plan_file_path = self._generate_plan_file_path()
+            self._ensure_plan_file()
             self._system_prompt = self._base_system_prompt + self._build_plan_mode_prompt()
             print_info(f"已进入计划模式。计划文件：{self._plan_file_path}")
             return "plan"
@@ -1263,6 +1274,7 @@ class Agent:
             self._pre_plan_mode = self.permission_mode
             self.permission_mode = "plan"
             self._plan_file_path =  self._generate_plan_file_path()
+            self._ensure_plan_file()
             self._system_prompt = self._base_system_prompt + self._build_plan_mode_prompt()
             if self.use_openai and self._openai_messages:
                 self._openai_messages[0]["content"] = self._system_prompt

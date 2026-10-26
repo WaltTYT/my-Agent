@@ -83,6 +83,27 @@ def test_request_tool_definitions_follows_current_mode():
     assert "save_memory" not in {t["name"] for t in agent._request_tool_definitions()}
 
 
+def test_entering_plan_mode_creates_the_plan_file(tmp_path, monkeypatch):
+    agent = make_agent()
+    plan_path = tmp_path / "plan.md"
+    monkeypatch.setattr(agent, "_generate_plan_file_path", lambda: str(plan_path))
+
+    assert agent.toggle_plan_mode() == "plan"
+    assert plan_path.exists()
+    assert plan_path.read_text(encoding="utf-8") == ""
+
+
+def test_enter_plan_tool_creates_the_plan_file(tmp_path, monkeypatch):
+    agent = make_agent()
+    plan_path = tmp_path / "plan-from-tool.md"
+    monkeypatch.setattr(agent, "_generate_plan_file_path", lambda: str(plan_path))
+
+    result = asyncio.run(agent._execute_plan_mode_tool("enter_plan_mode"))
+
+    assert "plan-from-tool.md" in result
+    assert plan_path.exists()
+
+
 def test_plan_mode_subagent_returns_analysis_without_owning_plan_file(monkeypatch):
     agent = make_agent()
     agent.permission_mode = "plan"
