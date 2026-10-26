@@ -53,7 +53,7 @@ def folded_sessions_dir() -> Path:
 
 def long_term_dir() -> Path:
     """长期记忆条目和 MEMORY.md 索引。"""
-    return _sub(os.path.join("long-term", "memory"))
+    return _sub("long-term")
 
 
 def plans_dir() -> Path:

@@ -153,7 +153,7 @@ python -m pytest tests -q        # 基线：37 passed
 
 - conda 环境目录 `D:\study\miniconda\envs\my-agent` 需管理员权限才能写入（已通过 icacls 授权，pip 正常）
 - `.bat` 脚本必须 CRLF + 纯 ASCII 注释，否则 cmd 解析截断
-- 运行时数据统一落在项目内 `memory/`（默认根目录），子目录为 `sessions/`、`sessions/folded/`、`long-term/memory/`、`plans/`、`tool-results/`、`skill-evolution/`；路径全部由 `agents/paths.py` 提供，不要在模块里再拼 `Path.home()`
+- 运行时数据统一落在项目内 `memory/`（默认根目录），子目录为 `sessions/`、`sessions/folded/`、`long-term/`、`plans/`、`tool-results/`、`skill-evolution/`；路径全部由 `agents/paths.py` 提供，不要在模块里再拼 `Path.home()`
 - 数据根目录可用环境变量 `LILY_DATA_DIR` 覆盖；指向跨项目共享目录时，不同项目的会话与记忆会混在一起，需要自行分开
 - 配置与技能不属于生成数据，仍在 `~/.lily/`（全局）和项目 `.lily/`（`skills/` 需入库）
 - 2026-10 历史迁移：数据曾散在 `~/.lily-data/`、`~/.lily-memory/`、`~/.lily/plans/` 和项目 `.lily/sessions/`，旧位置已停用，本机 4 个会话文件已搬入 `memory/sessions/`
