@@ -359,8 +359,8 @@ class Agent:
 
     Plan mode is active. You MUST NOT make any edits (except the plan file below), run non-readonly tools, or make any changes to the system.
 
-    ## Plan File: {self._plan_file_path}
-    Write your plan incrementally to this file using write_file or edit_file. This is the ONLY file you are allowed to edit.
+    ## Plan File Target (not created yet): {self._plan_file_path}
+    This is only a target path. The file is created when you first write the plan using write_file or edit_file. This is the ONLY file you are allowed to edit.
 
     ## Available Tools in Plan Mode:
     - **Read Tools**: read_file, list_files, grep_search (for exploring code)
@@ -491,7 +491,7 @@ class Agent:
                 else self._generate_plan_file_path()
             )
             self._system_prompt = self._base_system_prompt + self._build_plan_mode_prompt()
-            print_info(f"已进入计划模式。计划文件：{self._plan_file_path}")
+            print_info(f"已进入计划模式。计划文件目标路径（尚未创建）：{self._plan_file_path}")
             return "plan"
 
     def get_token_usage(self) -> dict:
@@ -1331,8 +1331,8 @@ class Agent:
             self._system_prompt = self._base_system_prompt + self._build_plan_mode_prompt()
             if self.use_openai and self._openai_messages:
                 self._openai_messages[0]["content"] = self._system_prompt
-            print_info("已进入计划模式（只读）。计划文件：" + self._plan_file_path)
-            return f"Entered plan mode. You are now in read-only mode.\n\nYour plan file: {self._plan_file_path}\nWrite your plan to this file. This is the only file you can edit.\n\nWhen your plan is complete, call exit_plan_mode."
+            print_info("已进入计划模式（只读）。计划文件目标路径（尚未创建）:" + self._plan_file_path)
+            return f"Entered plan mode. You are now in read-only mode.\n\nYour plan file target (not created yet): {self._plan_file_path}\nThe file will be created when you first write the plan. This is the only file you can edit.\n\nWhen your plan is complete, call exit_plan_mode."
         if name == "exit_plan_mode":
             if self.permission_mode != "plan":
                 return "Not in plan mode."
