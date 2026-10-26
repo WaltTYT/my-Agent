@@ -11,8 +11,6 @@ import uuid
 from pathlib import Path
 from typing import Callable, Awaitable, Any
 
-import anthropic
-import openai
 
 from agents.mcp_client import McpManager
 from agents.memory import MemoryPrefetch, start_memory_prefetch, format_memories_for_injection
@@ -30,7 +28,7 @@ from agents.session_memory import (
 from agents.session import save_folded_session_memory, save_session
 from agents.subagent import get_sub_agent_config
 from agents.tools import ToolDef, tool_definitions, execute_tool, CONCURRENCY_SAFE_TOOLS, check_permission, \
-    get_active_tool_definitions
+    get_active_tool_definitions, get_plan_mode_tool_definitions
 from agents.ui import print_info, print_divider, print_assistant_text, print_sub_agent_start, print_sub_agent_end, \
     start_spinner, stop_spinner, print_cost, print_tool_call, print_tool_result, print_confirmation, print_retry, \
     print_error
@@ -226,6 +224,9 @@ class Agent:
 
         #初始化大模型客户端
         if self.use_openai:
+            # SDK 就地导入：两个包合计约 4 秒，只有真要建客户端时才该付。
+            import openai
+
             self._openai_client = openai.AsyncOpenAI(base_url=api_base, api_key=api_key)
             self._anthropic_client = None
             self._openai_messages.append({"role": "system", "content": self._system_prompt})
@@ -235,6 +236,8 @@ class Agent:
                 kwargs["api_key"] = api_key
             if anthropic_base_url:
                 kwargs["base_url"] = anthropic_base_url
+            import anthropic
+
             self._anthropic_client = anthropic.AsyncAnthropic(**kwargs)
             self._openai_client = None
 
@@ -1168,6 +1171,17 @@ class Agent:
 
         return f'[Skill "{inp.get("skill_name", "")}" activated]\n\n{result["prompt"]}'
 
+    def _request_tool_definitions(self) -> list[ToolDef]:
+        """返回本次请求该发给模型的工具列表。
+
+        计划模式下必须把必然被 check_permission 拒绝的写类工具摘掉。之前它们照样发送，
+        模型于是挑了个 save_memory 去"保存计划"，被拒后还向用户宣称已经保存成功。
+        """
+        if self.permission_mode == "plan":
+            return get_plan_mode_tool_definitions(self.tools)
+        return get_active_tool_definitions(self.tools)
+
+
     async def _execute_plan_mode_tool(self, name):
         if name == "enter_plan_mode":
             if self.permission_mode == "plan":
@@ -1185,10 +1199,12 @@ class Agent:
                 return "Not in plan mode."
             plan_content = "(No plan file found)"
             if self._plan_file_path and Path(self._plan_file_path).exists():
-                plan_content = self._plan_file_path
+                # 这里要的是计划正文而不是路径：审批面板和回给模型的 "## Approved Plan" 都用它。
+                plan_content = Path(self._plan_file_path).read_text(encoding="utf-8")
             # 交互式审批流程（如果有审批函数）
             if self._plan_approval_fn:
-                result = self._plan_approval_fn(plan_content)
+                # 审批回调是 async 的，漏掉 await 会让 result 变成协程对象并直接抛错。
+                result = await self._plan_approval_fn(plan_content)
                 choice = result.get("choice", "manual-execute")
 
                 if choice =="keep-planning":
@@ -1206,8 +1222,8 @@ class Agent:
                 else:  # manual-execute
                     target_mode = self._pre_plan_mode or "default"
 
-                #离开计划模式
-                self._pre_plan_mode = target_mode
+                #离开计划模式：必须写回 permission_mode，否则批准之后仍然卡在只读模式里。
+                self.permission_mode = target_mode
                 self._pre_plan_mode = None
                 saved_plan_path = self._plan_file_path
                 self._plan_file_path = None
@@ -1500,7 +1516,7 @@ class Agent:
                 "model": self.model,
                 "max_tokens": max_output if self._thinking_mode != "disabled" else 16384,
                 "system": _safe_utf8_text(self._system_prompt),
-                "tools": _sanitize_for_utf8(get_active_tool_definitions(self.tools)),
+                "tools": _sanitize_for_utf8(self._request_tool_definitions()),
                 "messages": _sanitize_for_utf8(self._anthropic_messages),
             }
             #如果开启了思考模式，就给 Anthropic 请求加上 thinking 参数。
@@ -1746,7 +1762,7 @@ class Agent:
         async def _do():
             stream = await self._openai_client.chat.completions.create(
                 model=self.model,
-                tools=_sanitize_for_utf8(_to_openai_tools(get_active_tool_definitions(self.tools))),
+                tools=_sanitize_for_utf8(_to_openai_tools(self._request_tool_definitions())),
                 messages=_sanitize_for_utf8(self._openai_messages),
                 stream=True,
                 stream_options={"include_usage": True},

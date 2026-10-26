@@ -23,6 +23,15 @@ EDIT_TOOLS = {"write_file", "edit_file", "skill_evolve", "skill_create", "save_m
 #并发安全的工具可以并行运行（只读，无副作用）
 CONCURRENCY_SAFE_TOOLS = {"read_file", "list_files", "grep_search"}
 
+# 计划模式下仍然暴露给模型的工具。其余写类工具（save_memory、delete_memory、
+# skill_create、skill_evolve、run_shell 等）在 check_permission 里必然被拒，
+# 继续留在请求里只会诱导模型去调一个注定失败的工具，所以直接不发送。
+PLAN_MODE_TOOLS = READ_TOOLS | {
+    "write_file", "edit_file",
+    "enter_plan_mode", "exit_plan_mode",
+    "agent", "tool_search",
+}
+
 
 
 
@@ -523,6 +532,22 @@ def get_deferred_tool_names(all_tools: list[ToolDef] | None = None) -> list[str]
     tools = all_tools if all_tools is not None else tool_definitions
     return [t["name"] for t in tools if t.get("deferred") and t["name"] not in _activated_tools]
 
+def get_plan_mode_tool_definitions(all_tools: list[ToolDef] | None = None) -> list[ToolDef]:
+    """计划模式下发给模型的工具列表：只保留只读工具和计划文件写入。
+
+    enter_plan_mode / exit_plan_mode 平时是 deferred，不进请求。但一旦已经处于计划模式，
+    系统提示词会强制要求模型"完成后调用 exit_plan_mode"，此时必须把它发出去：否则模型
+    手里根本没有这个工具，只能退而调用别的写工具，被拒后向用户宣称已经保存。
+    """
+    tools = all_tools if all_tools is not None else tool_definitions
+    visible = {t["name"] for t in get_active_tool_definitions(tools)}
+    forced = {"enter_plan_mode", "exit_plan_mode"}
+    return [
+        {k: v for k, v in t.items() if k != "deferred"}
+        for t in tools
+        if t["name"] in PLAN_MODE_TOOLS and (t["name"] in visible or t["name"] in forced)
+    ]
+
 #执行shell命令
 def _run_shell(inp: dict) -> str:
     try:
@@ -668,7 +693,16 @@ def check_permission(
             file_path = inp.get("file_path") or inp.get("path")
             if plan_file_path and file_path == plan_file_path:
                 return {"action": "allow"}
-            return {"action": "deny", "message": f"计划模式下被阻止：{tool_name}"}
+            # 光说"被阻止"会让模型直接宣称保存成功，这里必须给出下一步该做什么。
+            target = plan_file_path or "计划文件"
+            return {
+                "action": "deny",
+                "message": (
+                    f"计划模式是只读的，{tool_name} 未执行，内容没有保存。"
+                    f"请改用 write_file 把内容写入 {target}（这是唯一可写文件），"
+                    f"完成后再调用 exit_plan_mode。不要向用户声称已保存。"
+                ),
+            }
         if tool_name == "run_shell":
             return {"action": "deny", "message": "计划模式下禁止执行 shell 命令"}
 

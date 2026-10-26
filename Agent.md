@@ -49,7 +49,7 @@
 - **探索**：先读代码再发言；定向查找用 Glob/Grep，跨模块理解用 Explore 代理
 - **规划**：多文件改动或方案不唯一时，先给出计划征得同意
 - **实现**：按现有模块边界改动，新功能优先挂到既有扩展点（新工具 → `tools.py`；新命令 → `main.py` REPL 分发；新规则 → `.lily/rules/`）
-- **验证**：改动后必须运行 `python -m pytest tests -q`（当前基线 67 passed）；涉及 UI 的改动重启 REPL 目测确认
+- **验证**：改动后必须运行 `python -m pytest tests -q`（当前基线 77 passed）；涉及 UI 的改动重启 REPL 目测确认
 
 ### 2.4 代码风格规则
 
@@ -111,7 +111,7 @@ my-Agent/                      # 项目根（Lily）
 
 ```powershell
 conda activate my-agent
-python -m pytest tests -q        # 基线：67 passed
+python -m pytest tests -q        # 基线：77 passed
 ```
 
 - 测试不联网（模型调用被 fake 替身替换，见 tests/）
@@ -155,6 +155,8 @@ python -m pytest tests -q        # 基线：67 passed
 - `.bat` 脚本必须 CRLF + 纯 ASCII 注释，否则 cmd 解析截断
 - 运行时数据统一落在项目内 `memory/`（默认根目录），子目录为 `sessions/`、`sessions/folded/`、`long-term/`、`plans/`、`tool-results/`、`skill-evolution/`；路径全部由 `agents/paths.py` 提供，不要在模块里再拼 `Path.home()`
 - 数据根目录可用环境变量 `LILY_DATA_DIR` 覆盖；指向跨项目共享目录时，不同项目的会话与记忆会混在一起，需要自行分开
+- 计划模式下发给模型的工具由 `get_plan_mode_tool_definitions()` 过滤，只留只读工具与计划文件写入；`enter_plan_mode` / `exit_plan_mode` 虽是 deferred 但在此模式下强制发送，否则模型无法退出计划模式
+- `anthropic` / `openai` 在 `agent.py` 中为就地导入（合计约 4 秒），新增顶层导入前先确认是否真的需要
 - REPL 提供 `/remember` 与 `/forget`：前者让用户不依赖模型自觉即可强制落盘记忆（不调模型，解析完全确定），后者按文件名或关键词匹配，歧义时只列候选不删除
 - 长期记忆通过 `save_memory` / `delete_memory` 工具写入 `memory/long-term/`，属于 `EDIT_TOOLS`（计划模式下被拒）；文件名由 `_memory_filename()` 推导，保留 Unicode 字符并在校验失败时补哈希，避免不同中文名称塌缩成同一个文件互相覆盖
 - `MEMORY.md` 是生成索引：写入、删除和手动增删记忆文件后由 `refresh_memory_index_if_stale()` 在组装 system prompt 时自愈，禁止手工编辑
@@ -171,7 +173,7 @@ python -m pytest tests -q        # 基线：67 passed
 - [ ] 代码遵循项目约定（4 空格、snake_case、无新增注释）
 - [ ] 未暴露任何机密或凭证（密钥只在 .env）
 - [ ] 所有用户可见文案为简体中文，模型侧描述为英文
-- [ ] `python -m pytest tests -q` 全部通过（基线 67）
+- [ ] `python -m pytest tests -q` 全部通过（基线 77）
 - [ ] 涉及文件读写的改动显式 encoding="utf-8"
 - [ ] 变更最小化且聚焦，未顺手重构无关代码
 - [ ] 提交遵循 8.1 格式，且已获得用户提交/推送许可
