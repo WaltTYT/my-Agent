@@ -290,7 +290,8 @@ class Agent:
     #生成一个用于保存 AI 计划（Plan）的 Markdown 文件的绝对路径。
     def _generate_plan_file_path(self) -> str:
         d = plans_dir()
-        return str(d / f"plan-{self.session_id}.md")
+        plan_id = uuid.uuid4().hex[:8]
+        return str(d / f"plan-{self.session_id}-{plan_id}.md")
 
     def _ensure_plan_file(self) -> None:
         """创建当前计划文件，确保提示的路径立即对应真实文件。"""
@@ -300,6 +301,12 @@ class Agent:
         path.parent.mkdir(parents=True, exist_ok=True)
         if not path.exists():
             path.write_text("", encoding="utf-8")
+        read_file_state = getattr(self, "_read_file_state", None)
+        if read_file_state is not None:
+            try:
+                read_file_state[str(path.resolve())] = path.stat().st_mtime
+            except OSError:
+                pass
 
     def _build_plan_mode_prompt(self) -> str:
         return f"""

@@ -12,6 +12,7 @@ import pytest
 
 from agents import main as cli
 from agents import memory
+from agents.paths import plans_dir
 
 
 def test_plain_text_becomes_user_memory_with_derived_name():
@@ -106,6 +107,8 @@ class _StubAgent:
     def __init__(self):
         self._aborted = False
         self._output_buffer = None
+        self.permission_mode = "default"
+        self.chat_requests = []
 
     def set_confirm_fn(self, fn):
         pass
@@ -116,17 +119,26 @@ class _StubAgent:
     def abort(self):
         pass
 
+    def toggle_plan_mode(self):
+        self.permission_mode = "default" if self.permission_mode == "plan" else "plan"
+        return self.permission_mode
+
+    async def chat(self, prompt):
+        self.chat_requests.append(prompt)
+
     async def drain_background_skill_tasks(self):
         # REPL 退出前会 await 这个，测试里没有后台任务。
         return None
 
 
-def _drive_repl(monkeypatch, lines: list[str]) -> None:
+def _drive_repl(monkeypatch, lines: list[str]) -> _StubAgent:
     """把 lines 喂给真实 REPL 分发，直到 exit 结束。"""
     feed = iter(lines + ["exit"])
     monkeypatch.setattr("builtins.input", lambda *a, **k: next(feed))
     monkeypatch.setattr(cli, "print_user_prompt", lambda: None)
-    asyncio.run(cli.run_repl(_StubAgent()))
+    agent = _StubAgent()
+    asyncio.run(cli.run_repl(agent))
+    return agent
 
 
 def test_remember_and_forget_through_real_repl(monkeypatch, capsys):
@@ -163,3 +175,43 @@ def test_repl_forget_reports_ambiguous_match(monkeypatch, capsys):
 def test_repl_forget_reports_no_match(monkeypatch, capsys):
     _drive_repl(monkeypatch, ["/forget 根本没有这条记忆"])
     assert "没有找到匹配的记忆" in capsys.readouterr().out
+
+
+def test_plans_lists_plan_files(monkeypatch, capsys):
+    plan = plans_dir() / "plan-example.md"
+    plan.write_text("# 示例计划\n", encoding="utf-8")
+
+    _drive_repl(monkeypatch, ["/plans"])
+
+    assert "plan-example.md" in capsys.readouterr().out
+
+
+def test_plans_with_filename_displays_plan_content(monkeypatch, capsys):
+    plan = plans_dir() / "plan-example.md"
+    plan.write_text("# 示例计划\n第一步", encoding="utf-8")
+
+    _drive_repl(monkeypatch, ["/plans plan-example.md"])
+
+    output = capsys.readouterr().out
+    assert "计划文件" in output
+    assert "第一步" in output
+
+
+def test_plans_create_enters_plan_mode_and_chats(monkeypatch):
+    agent = _drive_repl(monkeypatch, ["/plans-create 添加联网功能"])
+
+    assert agent.permission_mode == "plan"
+    assert agent.chat_requests == ["添加联网功能"]
+
+
+def test_plans_create_requires_a_task(monkeypatch, capsys):
+    _drive_repl(monkeypatch, ["/plans-create"])
+
+    assert "用法：/plans-create <任务>" in capsys.readouterr().out
+
+
+def test_plan_with_task_remains_a_compatible_alias(monkeypatch):
+    agent = _drive_repl(monkeypatch, ["/plan 重构记忆模块"])
+
+    assert agent.permission_mode == "plan"
+    assert agent.chat_requests == ["重构记忆模块"]

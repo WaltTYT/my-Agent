@@ -38,6 +38,7 @@ from .skills import (
     skill_stats,
 )
 from .online_skill_eval import format_online_skill_eval_async
+from .paths import plans_dir
 
 if TYPE_CHECKING:
     # 只为类型注解存在。运行时在 main() 里延迟导入，避免 --help 和测试收集
@@ -192,6 +193,42 @@ def _match_memories(query: str) -> list[MemoryEntry]:
     ]
 
 
+def _show_plans(query: str = "") -> None:
+    """列出或查看 `memory/plans/` 下的任务计划。"""
+    files = sorted(
+        (path for path in plans_dir().glob("*.md") if path.is_file()),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    query = query.strip().lower()
+    if not query:
+        if not files:
+            print_info("还没有计划文件。使用 /plans-create <任务> 创建一份计划。")
+            return
+        lines = ["任务计划（memory/plans）："]
+        lines.extend(f"- {path.name}（{path.stat().st_size} bytes）" for path in files)
+        lines.append("\n使用 /plans <文件名> 查看具体计划。")
+        print_info("\n".join(lines))
+        return
+
+    matches = [path for path in files if path.name.lower() == query]
+    if not matches:
+        matches = [path for path in files if query in path.name.lower()]
+    if not matches:
+        print_error(f"没有找到计划文件：{query}")
+        return
+    if len(matches) > 1:
+        print_warning("匹配到多个计划文件，请使用完整文件名：\n" + "\n".join(f"- {p.name}" for p in matches))
+        return
+    path = matches[0]
+    try:
+        content = path.read_text(encoding="utf-8") or "（计划文件目前为空）"
+    except OSError as exc:
+        print_error(f"读取计划文件失败：{exc}")
+        return
+    print_info(f"计划文件：{path}\n\n{content}")
+
+
 async def run_repl(agent: Agent) -> None:
     """Interactive REPL loop."""
 
@@ -271,8 +308,27 @@ async def run_repl(agent: Agent) -> None:
         if inp == "/clear":
             agent.clear_history()
             continue
+        if inp == "/plans" or inp.startswith("/plans "):
+            _show_plans(inp[len("/plans"):].strip())
+            continue
+        if inp == "/plans-create" or inp.startswith("/plans-create "):
+            request = inp[len("/plans-create"):].strip()
+            if not request:
+                print_error("用法：/plans-create <任务>")
+                continue
+            if agent.permission_mode == "plan":
+                agent.toggle_plan_mode()
+            agent.toggle_plan_mode()
+            await agent.chat(request)
+            continue
         if inp == "/plan":
             agent.toggle_plan_mode()
+            continue
+        if inp.startswith("/plan "):
+            request = inp[len("/plan"):].strip()
+            if agent.permission_mode != "plan":
+                agent.toggle_plan_mode()
+            await agent.chat(request)
             continue
         if inp == "/cost":
             agent.show_cost()
@@ -450,6 +506,8 @@ def main() -> None:
 REPL 命令：
   /clear              清空对话历史
   /plan               切换计划模式（只读 <-> 普通）
+  /plans              查看所有任务计划；/plans <文件名> 查看具体计划
+  /plans-create       创建计划：/plans-create <任务>
   /cost               显示 token 用量和费用
   /compact            手动压缩对话
   /memory             列出已保存的记忆

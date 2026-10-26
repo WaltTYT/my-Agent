@@ -104,6 +104,38 @@ def test_enter_plan_tool_creates_the_plan_file(tmp_path, monkeypatch):
     assert plan_path.exists()
 
 
+def test_new_plan_file_can_be_written_without_a_re_read(tmp_path, monkeypatch):
+    agent = make_agent()
+    agent._read_file_state = {}
+    plan_path = tmp_path / "plan-ready-to-write.md"
+    monkeypatch.setattr(agent, "_generate_plan_file_path", lambda: str(plan_path))
+
+    agent.toggle_plan_mode()
+    result = asyncio.run(tools.execute_tool(
+        "write_file",
+        {"file_path": str(plan_path), "content": "# 计划\n"},
+        agent._read_file_state,
+    ))
+
+    assert result.startswith("Successfully wrote")
+    assert plan_path.read_text(encoding="utf-8") == "# 计划\n"
+
+
+def test_each_plan_mode_entry_gets_a_new_file():
+    agent = make_agent()
+    agent._read_file_state = {}
+
+    agent.toggle_plan_mode()
+    first_plan = Path(agent._plan_file_path)
+    agent.toggle_plan_mode()
+    agent.toggle_plan_mode()
+    second_plan = Path(agent._plan_file_path)
+
+    assert first_plan != second_plan
+    assert first_plan.exists()
+    assert second_plan.exists()
+
+
 def test_plan_mode_subagent_returns_analysis_without_owning_plan_file(monkeypatch):
     agent = make_agent()
     agent.permission_mode = "plan"

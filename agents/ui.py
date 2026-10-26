@@ -47,6 +47,8 @@ def print_welcome() -> None:
     commands.add_column(style="bold cyan", no_wrap=True)
     commands.add_column(style="dim")
     commands.add_row("/plan", "只读规划工作流")
+    commands.add_row("/plans", "查看所有任务计划")
+    commands.add_row("/plans-create", "创建任务计划")
     commands.add_row("/skills", "列出可复用技能")
     commands.add_row("/skill-create", "创建可复用技能")
     commands.add_row("/skill-stats", "查看技能进化统计")
