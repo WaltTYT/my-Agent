@@ -9,36 +9,36 @@ def run(name, inp, state):
 
 
 def test_edit_requires_reading_first(isolated_env):
-    (isolated_env / "a.py").write_text("x = 1\n")
+    (isolated_env / "a.py").write_text("x = 1\n", encoding="utf-8")
     result = run("edit_file", {"file_path": "a.py", "old_string": "x = 1", "new_string": "x = 2"}, {})
     assert result.startswith("Error: You must read this file")
-    assert (isolated_env / "a.py").read_text() == "x = 1\n"
+    assert (isolated_env / "a.py").read_text(encoding="utf-8") == "x = 1\n"
 
 
 def test_read_then_edit_succeeds(isolated_env):
-    (isolated_env / "a.py").write_text("x = 1\n")
+    (isolated_env / "a.py").write_text("x = 1\n", encoding="utf-8")
     state = {}
     run("read_file", {"file_path": "a.py"}, state)
     result = run("edit_file", {"file_path": "a.py", "old_string": "x = 1", "new_string": "x = 2"}, state)
     assert result.startswith("Successfully edited")
-    assert (isolated_env / "a.py").read_text() == "x = 2\n"
+    assert (isolated_env / "a.py").read_text(encoding="utf-8") == "x = 2\n"
 
 
 def test_external_modification_forces_reread(isolated_env):
     path = isolated_env / "a.py"
-    path.write_text("x = 1\n")
+    path.write_text("x = 1\n", encoding="utf-8")
     state = {}
     run("read_file", {"file_path": "a.py"}, state)
-    path.write_text("x = 100\n")
+    path.write_text("x = 100\n", encoding="utf-8")
     mtime = os.path.getmtime(path)
     os.utime(path, (mtime + 5, mtime + 5))
     result = run("edit_file", {"file_path": "a.py", "old_string": "x = 100", "new_string": "x = 2"}, state)
     assert "modified externally" in result
-    assert path.read_text() == "x = 100\n"
+    assert path.read_text(encoding="utf-8") == "x = 100\n"
 
 
 def test_consecutive_edits_do_not_need_reread(isolated_env):
-    (isolated_env / "a.py").write_text("a = 1\nb = 1\n")
+    (isolated_env / "a.py").write_text("a = 1\nb = 1\n", encoding="utf-8")
     state = {}
     run("read_file", {"file_path": "a.py"}, state)
     run("edit_file", {"file_path": "a.py", "old_string": "a = 1", "new_string": "a = 2"}, state)
@@ -47,7 +47,7 @@ def test_consecutive_edits_do_not_need_reread(isolated_env):
 
 
 def test_edit_rejects_ambiguous_old_string(isolated_env):
-    (isolated_env / "a.py").write_text("x = 1\nx = 1\n")
+    (isolated_env / "a.py").write_text("x = 1\nx = 1\n", encoding="utf-8")
     state = {}
     run("read_file", {"file_path": "a.py"}, state)
     result = run("edit_file", {"file_path": "a.py", "old_string": "x = 1", "new_string": "x = 2"}, state)

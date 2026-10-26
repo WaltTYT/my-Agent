@@ -285,7 +285,7 @@ def _auto_update_memory_index(file_path:str) -> None:
                 if f.name == "MEMORY.md":
                     continue
                 try:
-                    raw = f.read_text()
+                    raw = f.read_text(encoding="utf-8")
                     name_match = re.search(r"^name:\s*(.+)$", raw, re.MULTILINE)
                     type_match = re.search(r"^type:\s*(.+)$", raw, re.MULTILINE)
                     desc_match = re.search(r"^description:\s*(.+)$", raw, re.MULTILINE)
@@ -296,7 +296,7 @@ def _auto_update_memory_index(file_path:str) -> None:
                         lines.append(f"- **[{n}]({f.name})** ({t}) — {d}")
                 except Exception:
                     pass
-            (mem_path / "MEMORY.md").write_text("\n".join(lines))
+            (mem_path / "MEMORY.md").write_text("\n".join(lines), encoding="utf-8")
     except Exception:
         pass
 
@@ -435,7 +435,7 @@ def _grep_python(pattern: str, directory: str, include: str | None) -> str:
             if include_pattern and not fnmatch.fnmatch(name, include_pattern):
                 continue
             try:
-                text = Path(full).read_text(errors="replace")
+                text = Path(full).read_text(errors="replace", encoding="utf-8")
                 for i, line in enumerate(text.split("\n")):
                     if regex.search(line):
                         matches.append(f"{full}:{i+1}:{line}")
@@ -552,7 +552,7 @@ def _load_settings(file_path: Path) -> dict | None:
     if not file_path.exists():
         return None
     try:
-        return json.loads(file_path.read_text())
+        return json.loads(file_path.read_text(encoding="utf-8"))
     except Exception:
         return None
 

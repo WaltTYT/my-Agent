@@ -84,7 +84,7 @@ def list_memories() -> list[MemoryEntry]:
         if f.name == "MEMORY.md":
             continue
         try:
-            result = parse_frontmatter(f.read_text())
+            result = parse_frontmatter(f.read_text(encoding="utf-8"))
             meta = result.meta
             # 没有 name/type 的文件不算合法 memory。
             if not meta.get("name") or not meta.get("type"):
@@ -110,7 +110,7 @@ def save_memory(name: str, description: str, type: str, content: str) -> str:
     d = get_memory_dir()
     filename = f"{type}_{_slugify(name)}.md"
     text = format_frontmatter({"name": name, "description": description, "type": type}, content)
-    (d / filename).write_text(text)
+    (d / filename).write_text(text, encoding="utf-8")
     _update_memory_index()
     return filename
 
@@ -133,7 +133,7 @@ def _update_memory_index() -> None:
     lines = ["# Memory Index", ""]
     for m in memories:
         lines.append(f"- **[{m.name}]({m.filename})** ({m.type}) — {m.description}")
-    _get_index_path().write_text("\n".join(lines))
+    _get_index_path().write_text("\n".join(lines), encoding="utf-8")
 
 
 def load_memory_index() -> str:
@@ -141,7 +141,7 @@ def load_memory_index() -> str:
     index_path = _get_index_path()
     if not index_path.exists():
         return ""
-    content = index_path.read_text()
+    content = index_path.read_text(encoding="utf-8")
     lines = content.split("\n")
     if len(lines) > MAX_INDEX_LINES:
         content = "\n".join(lines[:MAX_INDEX_LINES]) + "\n\n[... truncated, too many memory entries ...]"
@@ -180,7 +180,7 @@ def scan_memory_headers() -> list[MemoryHeader]:
             continue
         try:
             stat = f.stat()
-            raw = f.read_text()
+            raw = f.read_text(encoding="utf-8")
             # 只解析前 30 行，通常 frontmatter 足够在文件开头完成。
             first30 = "\n".join(raw.split("\n")[:30])
             result = parse_frontmatter(first30)
@@ -310,7 +310,7 @@ async def select_relevant_memories(
         result: list[RelevantMemory] = []
         for h in selected:
             # 读取每个选中的 memory 文件内容。
-            content = Path(h.file_path).read_text()
+            content = Path(h.file_path).read_text(encoding="utf-8")
             # 如果文件太大，就截断，避免单条记忆占用过多上下文。
             if len(content.encode()) > MAX_MEMORY_BYTES_PER_FILE:
                 content = content[:MAX_MEMORY_BYTES_PER_FILE] + "\n\n[... truncated, memory file too large ...]"

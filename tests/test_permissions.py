@@ -48,7 +48,7 @@ def test_bypass_mode_allows_everything():
 
 def test_creating_new_file_needs_confirmation(isolated_env):
     assert check_permission("write_file", {"file_path": "new.txt"})["action"] == "confirm"
-    (isolated_env / "exists.txt").write_text("hi")
+    (isolated_env / "exists.txt").write_text("hi", encoding="utf-8")
     assert check_permission("write_file", {"file_path": "exists.txt"})["action"] == "allow"
 
 
@@ -59,7 +59,7 @@ def test_accept_edits_mode_allows_new_files():
 def test_project_rules_deny_beats_allow(isolated_env):
     settings = {"permissions": {"allow": ["run_shell(git *)"], "deny": ["run_shell(git push*)"]}}
     (isolated_env / ".lily").mkdir()
-    (isolated_env / ".lily" / "settings.json").write_text(json.dumps(settings))
+    (isolated_env / ".lily" / "settings.json").write_text(json.dumps(settings), encoding="utf-8")
     reset_permission_cache()
     assert check_permission("run_shell", {"command": "git push origin main"})["action"] == "deny"
     assert check_permission("run_shell", {"command": "git status"})["action"] == "allow"
