@@ -30,6 +30,7 @@ PLAN_MODE_TOOLS = READ_TOOLS | {
     "write_file", "edit_file",
     "enter_plan_mode", "exit_plan_mode",
     "agent", "tool_search",
+    "search_web", "get_web_content",
 }
 
 
@@ -254,6 +255,31 @@ tool_definitions: list[ToolDef] = [
                 "type": {"type": "string", "enum": ["explore", "plan", "general"], "description": "Agent type. Default: general"},
             },
             "required": ["description", "prompt"],
+        },
+    },
+    # ─── 联网工具 ─────────────────────
+    {
+        "name": "search_web",
+        "description": "Search the web for information using DuckDuckGo API. Returns formatted search results with titles, content snippets, and URLs.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search query string"},
+                "max_results": {"type": "integer", "description": "Maximum number of results to return (default: 5)", "default": 5},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "get_web_content",
+        "description": "Get and summarize web page content. Returns title and main content excerpt from a given URL.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "Web page URL to fetch content from"},
+                "max_length": {"type": "integer", "description": "Maximum content length (default: 2000)", "default": 2000},
+            },
+            "required": ["url"],
         },
     },
     # ─── Tool search (deferred tool loader) ─────────────────────
@@ -840,6 +866,32 @@ async def execute_tool(
             evidence=inp.get("evidence", ""),
         )
         return _truncate_result(json.dumps(result, ensure_ascii=False, indent=2))
+
+    # 联网工具处理
+    if name == "search_web":
+        from .online_tools import search_web
+        query = inp.get("query", "").strip()
+        max_results = inp.get("max_results", 5)
+        if not query:
+            return "Error: query is required for web search"
+        try:
+            result = await search_web(query, max_results)
+            return _truncate_result(result)
+        except Exception as e:
+            return f"Error searching web: {str(e)}"
+
+    if name == "get_web_content":
+        from .online_tools import get_web_content
+        url = inp.get("url", "").strip()
+        max_length = inp.get("max_length", 2000)
+        if not url:
+            return "Error: url is required for getting web content"
+        try:
+            # 运行异步函数
+            result = await get_web_content(url, max_length)
+            return _truncate_result(result)
+        except Exception as e:
+            return f"Error getting web content: {str(e)}"
 
     if name == "save_memory":
         from .memory import save_memory

@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+import agents.agent as agent_module
 from agents import tools
 from agents.agent import Agent
 
@@ -70,6 +71,9 @@ def test_plan_mode_hides_tools_that_would_only_be_denied():
     assert {"read_file", "grep_search", "list_files"} <= plan_tools
     assert {"write_file", "edit_file", "exit_plan_mode"} <= plan_tools
 
+    # 联网工具应该在计划模式下可用
+    assert {"search_web", "get_web_content"} <= plan_tools
+
 
 def test_request_tool_definitions_follows_current_mode():
     agent = make_agent()
@@ -77,6 +81,50 @@ def test_request_tool_definitions_follows_current_mode():
 
     in_plan_mode(agent)
     assert "save_memory" not in {t["name"] for t in agent._request_tool_definitions()}
+
+
+def test_plan_mode_subagent_returns_analysis_without_owning_plan_file(monkeypatch):
+    agent = make_agent()
+    agent.permission_mode = "plan"
+    agent._plan_file_path = r"D:\project\memory\plans\parent-plan.md"
+    agent.use_openai = False
+    agent._openai_client = None
+    agent.total_input_tokens = 0
+    agent.total_output_tokens = 0
+    captured = {}
+
+    class StubSubAgent:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        async def run_once(self, prompt: str) -> dict:
+            return {"tokens": {"input": 3, "output": 2}, "text": "分析结果"}
+
+    monkeypatch.setattr(agent_module, "Agent", StubSubAgent)
+    result = asyncio.run(agent._execute_agent_tool({
+        "type": "general",
+        "description": "检查实现方案",
+        "prompt": "分析相关模块",
+    }))
+
+    assert result == "分析结果"
+    assert captured["permission_mode"] == "plan"
+    assert captured["is_sub_agent"] is True
+    assert {tool["name"] for tool in captured["custom_tools"]} == {
+        "read_file", "list_files", "grep_search"
+    }
+    assert "Do not edit files or create a plan file" in captured["custom_system_prompt"]
+    assert agent._plan_file_path.endswith("parent-plan.md")
+
+
+def test_plan_mode_subagent_tool_request_is_read_only():
+    agent = make_agent()
+    agent.permission_mode = "plan"
+    agent.is_sub_agent = True
+
+    assert {tool["name"] for tool in agent._request_tool_definitions()} == {
+        "read_file", "list_files", "grep_search"
+    }
 
 
 def test_plan_mode_deny_message_points_at_the_plan_file():

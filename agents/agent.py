@@ -26,12 +26,19 @@ from agents.session_memory import (
     parse_folded_memory,
 )
 from agents.session import save_folded_session_memory, save_session
-from agents.subagent import get_sub_agent_config
+from agents.subagent import READ_ONLY_TOOLS as SUB_AGENT_READ_ONLY_TOOLS, get_sub_agent_config
 from agents.tools import ToolDef, tool_definitions, execute_tool, CONCURRENCY_SAFE_TOOLS, check_permission, \
     get_active_tool_definitions, get_plan_mode_tool_definitions
 from agents.ui import print_info, print_divider, print_assistant_text, print_sub_agent_start, print_sub_agent_end, \
     start_spinner, stop_spinner, print_cost, print_tool_call, print_tool_result, print_confirmation, print_retry, \
     print_error
+
+
+PLAN_DELEGATE_INSTRUCTIONS = (
+    "\n\nYou are a read-only analysis delegate for a parent agent in plan mode. "
+    "Do not edit files or create a plan file. Return your findings and recommendations "
+    "to the parent agent, which owns the plan and approval workflow."
+)
 
 
 # 指数退避重试
@@ -216,9 +223,13 @@ class Agent:
         #构建系统提示词
         self._base_system_prompt = custom_system_prompt or build_system_prompt()
 
+        # 计划文件属于父代理。子代理只返回分析结果，不创建或写入自己的计划文件。
         if self.permission_mode == "plan":
-            self._plan_file_path = self._generate_plan_file_path()
-            self._system_prompt = self._base_system_prompt + self._build_plan_mode_prompt()
+            if self.is_sub_agent:
+                self._system_prompt = self._base_system_prompt + PLAN_DELEGATE_INSTRUCTIONS
+            else:
+                self._plan_file_path = self._generate_plan_file_path()
+                self._system_prompt = self._base_system_prompt + self._build_plan_mode_prompt()
         else:
             self._system_prompt = self._base_system_prompt
 
@@ -280,14 +291,27 @@ class Agent:
     ## Plan File: {self._plan_file_path}
     Write your plan incrementally to this file using write_file or edit_file. This is the ONLY file you are allowed to edit.
 
-    ## Workflow
+    ## Available Tools in Plan Mode:
+    - **Read Tools**: read_file, list_files, grep_search (for exploring code)
+    - **Online Tools**: search_web, get_web_content (for researching current information)
+    - **Analysis Tools**: agent (for complex planning), tool_search (for finding other tools)
+    - **Plan Tools**: write_file, edit_file (for writing the plan), enter_plan_mode, exit_plan_mode
+
+    ## Enhanced Workflow
     1. **Explore**: Read code to understand the task. Use read_file, list_files, grep_search.
-    2. **Design**: Design your implementation approach. Use the agent tool with type="plan" if the task is complex.
-    3. **Write Plan**: Write a structured plan to the plan file including:
-       - **Context**: Why this change is needed
+    2. **Research**: Use search_web to find current information, best practices, or documentation related to your task.
+    3. **Design**: Design your implementation approach. Use the agent tool with type="plan" if the task is complex.
+    4. **Write Plan**: Write a structured plan to the plan file including:
+       - **Context**: Why this change is needed (include research findings if relevant)
        - **Steps**: Implementation steps with critical file paths
        - **Verification**: How to test the changes
-    4. **Exit**: Call exit_plan_mode when your plan is ready for user review.
+       - **References**: Links to documentation or resources found during research
+    5. **Exit**: Call exit_plan_mode when your plan is ready for user review.
+
+    ## Online Search Tips:
+    - Use search_web to find current documentation, best practices, or examples
+    - Use get_web_content to examine specific pages or documentation
+    - Include relevant URLs and research findings in your plan for better user understanding
 
     IMPORTANT: When your plan is complete, you MUST call exit_plan_mode. Do NOT ask the user to approve — exit_plan_mode handles that."""
 
@@ -496,7 +520,10 @@ class Agent:
             return
         self._base_system_prompt = build_system_prompt()
         if self.permission_mode == "plan":
-            self._system_prompt = self._base_system_prompt + self._build_plan_mode_prompt()
+            if self.is_sub_agent:
+                self._system_prompt = self._base_system_prompt + PLAN_DELEGATE_INSTRUCTIONS
+            else:
+                self._system_prompt = self._base_system_prompt + self._build_plan_mode_prompt()
         else:
             self._system_prompt = self._base_system_prompt
         self._system_prompt += self._build_fold_guidance_section()
@@ -1174,12 +1201,17 @@ class Agent:
                 if result.get("allowed_tools")
                 else  [t for t in self.tools if t["name"] != "agent"]
             )
+            if self.permission_mode == "plan":
+                tools = [t for t in tools if t["name"] in SUB_AGENT_READ_ONLY_TOOLS]
+                sub_agent_prompt = result["prompt"] + PLAN_DELEGATE_INSTRUCTIONS
+            else:
+                sub_agent_prompt = result["prompt"]
 
             print_sub_agent_start("skill-fork", inp.get("skill_name", ""))
             sub_agent = Agent(
                 model=self.model,
                 api_base=str(self._openai_client.base_url) if self.use_openai and self._openai_client else None,
-                custom_system_prompt=result["prompt"],
+                custom_system_prompt=sub_agent_prompt,
                 custom_tools=tools,
                 is_sub_agent=True,
                 permission_mode="plan" if self.permission_mode == "plan" else "bypassPermissions",
@@ -1203,6 +1235,12 @@ class Agent:
         模型于是挑了个 save_memory 去"保存计划"，被拒后还向用户宣称已经保存成功。
         """
         if self.permission_mode == "plan":
+            if self.is_sub_agent:
+                return [
+                    {k: v for k, v in tool.items() if k != "deferred"}
+                    for tool in self.tools
+                    if tool["name"] in SUB_AGENT_READ_ONLY_TOOLS
+                ]
             return get_plan_mode_tool_definitions(self.tools)
         return get_active_tool_definitions(self.tools)
 
@@ -1305,12 +1343,21 @@ class Agent:
         print_sub_agent_start(agent_type, description)
 
         config = get_sub_agent_config(agent_type)
+        sub_agent_tools = config["tools"]
+        sub_agent_prompt = config["system_prompt"]
+        if self.permission_mode == "plan":
+            # 父代理的计划模式只允许子代理做只读分析；计划正文由父代理统一维护。
+            sub_agent_tools = [
+                tool for tool in sub_agent_tools
+                if tool["name"] in SUB_AGENT_READ_ONLY_TOOLS
+            ]
+            sub_agent_prompt += PLAN_DELEGATE_INSTRUCTIONS
 
         sub_agent = Agent(
             model=self.model,
             api_base=str(self._openai_client.base_url) if self.use_openai and self._openai_client else None,
-            custom_system_prompt=config["system_prompt"],
-            custom_tools=config["tools"],
+            custom_system_prompt=sub_agent_prompt,
+            custom_tools=sub_agent_tools,
             is_sub_agent=True,
             permission_mode="plan" if self.permission_mode == "plan" else "bypassPermissions",
         )
