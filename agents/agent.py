@@ -1069,25 +1069,50 @@ class Agent:
     #如果工具返回的结果太大（超过 30KB），不要硬塞进上下文里，而是把它存成一个临时文件。
     # 然后在对话里只留一个‘文件路径’和‘内容预览’。如果模型后面还需要看完整内容，它可以再次调用工具去读取这个文件
 
-    def _persist_large_result(self, tool_name: str, result: str) -> str:
+    def _is_persisted_result_path(self, raw_path: str) -> bool:
+        """判断 read_file 的目标是不是上一轮自己落盘的 tool-results 文件。"""
+        if not raw_path:
+            return False
+        try:
+            target = Path(raw_path).resolve()
+            root = tool_results_dir().resolve()
+        except OSError:
+            return False
+        return root in target.parents
+
+    def _persist_large_result(self, tool_name: str, result: str, tool_input: dict | None = None) -> str:
         THRESHOLD = 30 * 1024  # 30 KB
         #转换成字节
         if (len (result.encode())) <= THRESHOLD:
             return result
+
+        lines = result.split("\n")
+        preview = "\n".join(lines[:200])
+
+        # 死循环防护：读回来的正是上一轮落盘的大结果时，再存一份只会得到同样的超限
+        # 文件并再次邀请模型去读，模型于是无限重复。这里直接截断返回，不再落盘。
+        if tool_name == "read_file" and self._is_persisted_result_path(str((tool_input or {}).get("file_path", ""))):
+            return (
+                f"[This file is itself a saved tool result ({len(lines)} lines) and is not re-saved. "
+                f"Only the first 200 lines are shown below. To inspect a specific range, call "
+                f"read_file with offset and limit, or use grep_search to locate lines.]\n\n{preview}"
+            )
 
         d = tool_results_dir()
         filename = f"{int(time.time() * 1000)}-{tool_name}.txt"
         filepath = d / filename
         filepath.write_text(result, encoding="utf-8")
 
-        lines = result.split("\n")
-        preview = "\n".join(lines[:200])
         size_kb = len(result.encode()) / 1024
 
+        # 旧文案写着 "You can use read_file to see the full result"，而那个文件本身又超过
+        # 阈值，模型照着做就会无限重新落盘。必须明确禁止整份回读。
         return (
             f"[Result too large ({size_kb:.1f} KB, {len(lines)} lines). "
-            f"Full output saved to {filepath}. "
-            f"You can use read_file to see the full result.]\n\n"
+            f"Only the preview below is in your context. The full text was saved to {filepath} "
+            f"for the user to inspect. Do NOT read_file that whole file — it is equally large and "
+            f"will be truncated again. To see a specific part, call read_file with offset and limit, "
+            f"or use grep_search to locate the lines you need.]\n\n"
             f"Preview (first 200 lines):\n{preview}"
         )
 
@@ -1438,7 +1463,7 @@ class Agent:
                     except Exception as e:
                         raw = f"Error executing tool: {e}"
                     raw = _safe_utf8_text(raw)
-                    res = self._persist_large_result(tu.name, raw)
+                    res = self._persist_large_result(tu.name, raw, inp)
                     print_tool_result(tu.name, res)
                     self._record_tool_outcome(tu.name, not self._looks_like_tool_failure(tu.name, raw, res))
                     tool_results.append({"type": "tool_result", "tool_use_id": tu.id, "content": res})
@@ -1471,7 +1496,7 @@ class Agent:
                 except Exception as e:
                     raw = f"Error executing tool: {e}"
                 raw = _safe_utf8_text(raw)
-                res = self._persist_large_result(tu.name, raw)
+                res = self._persist_large_result(tu.name, raw, inp)
                 print_tool_result(tu.name, res)
                 self._record_tool_outcome(tu.name, not self._looks_like_tool_failure(tu.name, raw, res))
 
@@ -1717,7 +1742,7 @@ class Agent:
                         async def _run_oai_safe(ct_item: dict) -> tuple[dict, str]:
                             raw = await self._execute_tool_call(ct_item["fn"], ct_item["inp"])
                             raw = _safe_utf8_text(raw)
-                            res = self._persist_large_result(ct_item["fn"], raw)
+                            res = self._persist_large_result(ct_item["fn"], raw, ct_item["inp"])
                             print_tool_result(ct_item["fn"], res)
                             return ct_item, res
 
@@ -1738,7 +1763,7 @@ class Agent:
 
                             raw = await self._execute_tool_call(ct["fn"], ct["inp"])
                             raw = _safe_utf8_text(raw)
-                            res = self._persist_large_result(ct["fn"], raw)
+                            res = self._persist_large_result(ct["fn"], raw, ct["inp"])
                             print_tool_result(ct["fn"], res)
                             self._record_tool_outcome(
                                 ct["fn"],

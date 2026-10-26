@@ -49,15 +49,23 @@ def get_active_tool_definitions(all_tools: list[ToolDef] | None = None) -> list[
 
 
 
+# read_file 默认只返回这么多行。整份读大文件会撞上 _persist_large_result 的 30 KB
+# 阈值，模型拿不到内容又去重读，形成自我维持的循环，所以必须分页。
+DEFAULT_READ_LIMIT = 400
+MAX_READ_LIMIT = 2000
+
+
 #工具定义
 tool_definitions: list[ToolDef] = [
     {
         "name": "read_file",
-        "description": "Read the contents of a file. Returns the file content with line numbers.",
+        "description": "Read a file and return it with line numbers. Large files must be paged through with offset/limit instead of read in one call.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "file_path": {"type": "string", "description": "The path to the file to read"},
+                "offset": {"type": "integer", "description": "1-based line to start from. Defaults to 1."},
+                "limit": {"type": "integer", "description": f"Max lines to return. Defaults to {DEFAULT_READ_LIMIT}, max {MAX_READ_LIMIT}. Page with offset to read further."},
             },
             "required": ["file_path"],
         },
@@ -289,12 +297,30 @@ def _resolve_tool_path(raw_path: str, *, must_exist: bool = True) -> Path:
 
 
 #读取文件并且在读取文件的基础上添加行号
+def _read_int(inp: dict, key: str, default: int, maximum: int) -> int:
+    """读取分页参数，非法值退回默认并夹在 [1, maximum] 内。"""
+    try:
+        value = int(inp.get(key) or default)
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(value, maximum))
+
+
 def _read_file(inp:dict) -> str:
     try:
         path = _resolve_tool_path(inp["file_path"])
         content = path.read_text(encoding="utf-8", errors="replace")
         lines = content.split("\n")
-        numbered = "\n".join(f"{i + 1:4d} | {line}" for i, line in enumerate(lines))
+        total = len(lines)
+        start = _read_int(inp, "offset", 1, max(1, total))
+        limit = _read_int(inp, "limit", DEFAULT_READ_LIMIT, MAX_READ_LIMIT)
+        window = lines[start - 1:start - 1 + limit]
+        numbered = "\n".join(f"{i:4d} | {line}" for i, line in enumerate(window, start))
+        shown = start - 1 + len(window)
+        if shown < total:
+            numbered += f"\n\n[{shown}/{total} lines shown. Continue with offset={shown + 1} limit={limit}.]"
+        elif start > 1:
+            numbered += f"\n\n[{shown}/{total} lines shown. End of file.]"
         return numbered
     except Exception as e:
         return f"Error reading file: {e}"
