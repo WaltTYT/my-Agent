@@ -239,7 +239,6 @@ class Agent:
                 self._system_prompt = self._base_system_prompt + PLAN_DELEGATE_INSTRUCTIONS
             else:
                 self._plan_file_path = self._generate_plan_file_path()
-                self._ensure_plan_file()
                 self._system_prompt = self._base_system_prompt + self._build_plan_mode_prompt()
         else:
             self._system_prompt = self._base_system_prompt
@@ -288,25 +287,70 @@ class Agent:
         return "opus-4-6" in m or "sonnet-4-6" in m
 
     #生成一个用于保存 AI 计划（Plan）的 Markdown 文件的绝对路径。
-    def _generate_plan_file_path(self) -> str:
+    def _generate_plan_file_path(self, task: str | None = None) -> str:
         d = plans_dir()
-        plan_id = uuid.uuid4().hex[:8]
-        return str(d / f"plan-{self.session_id}-{plan_id}.md")
+        if task:
+            slug = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "-", task.strip())
+            slug = re.sub(r"\s+", "-", slug).strip(" .-_")[:60].rstrip(" .-_")
+        else:
+            slug = f"plan-{self.session_id}-{uuid.uuid4().hex[:6]}"
+        slug = slug or "plan"
 
-    def _ensure_plan_file(self) -> None:
-        """创建当前计划文件，确保提示的路径立即对应真实文件。"""
+        candidate = d / f"{slug}.md"
+        suffix = 2
+        while candidate.exists():
+            candidate = d / f"{slug}-{suffix}.md"
+            suffix += 1
+        return str(candidate)
+
+    def create_plan_draft(self, task: str) -> str:
+        """为显式的计划创建命令立即写入任务初稿。"""
         if not self._plan_file_path:
-            return
+            raise RuntimeError("当前不在计划模式，无法创建计划文件")
         path = Path(self._plan_file_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        if not path.exists():
-            path.write_text("", encoding="utf-8")
+        content = (
+            f"# {task.strip()}\n\n## 任务\n{task.strip()}\n\n"
+            "## 背景与目标\n待分析\n\n"
+            "## 实施步骤\n待制定\n\n"
+            "## 验证方式\n待制定\n\n"
+            "## 风险与假设\n待补充\n"
+        )
+        while True:
+            path = Path(self._plan_file_path)
+            try:
+                with path.open("x", encoding="utf-8") as plan_file:
+                    plan_file.write(content)
+                break
+            except FileExistsError:
+                self._plan_file_path = self._generate_plan_file_path(task)
+                self._system_prompt = self._base_system_prompt + self._build_plan_mode_prompt()
+                if self.use_openai and self._openai_messages:
+                    self._openai_messages[0]["content"] = self._system_prompt
         read_file_state = getattr(self, "_read_file_state", None)
         if read_file_state is not None:
             try:
                 read_file_state[str(path.resolve())] = path.stat().st_mtime
             except OSError:
                 pass
+        return str(path)
+
+    def _normalize_plan_file_input(self, tool_name: str, inp: dict) -> dict:
+        """把计划模式下模型误写的目标纠正到当前计划文件。"""
+        if self.permission_mode != "plan" or tool_name not in {"write_file", "edit_file"}:
+            return inp
+        if not self._plan_file_path or not inp.get("file_path"):
+            return inp
+        try:
+            requested = Path(inp["file_path"]).resolve()
+            current = Path(self._plan_file_path).resolve()
+        except (OSError, TypeError, ValueError):
+            return inp
+        if requested == current:
+            return inp
+        normalized = dict(inp)
+        normalized["file_path"] = self._plan_file_path
+        return normalized
 
     def _build_plan_mode_prompt(self) -> str:
         return f"""
@@ -412,7 +456,7 @@ class Agent:
 
 
     #计划模式开关（“状态切换与现场保护”机制）
-    def toggle_plan_mode(self) -> str:
+    def toggle_plan_mode(self, task: str | None = None) -> str:
         """
                1. 退出计划模式（从 plan 切回原模式）
                当当前模式已经是 plan 时，执行 if 分支：
@@ -441,8 +485,11 @@ class Agent:
         else:
             self._pre_plan_mode = self.permission_mode
             self.permission_mode = "plan"
-            self._plan_file_path = self._generate_plan_file_path()
-            self._ensure_plan_file()
+            self._plan_file_path = (
+                self._generate_plan_file_path(task)
+                if task is not None
+                else self._generate_plan_file_path()
+            )
             self._system_prompt = self._base_system_prompt + self._build_plan_mode_prompt()
             print_info(f"已进入计划模式。计划文件：{self._plan_file_path}")
             return "plan"
@@ -1281,7 +1328,6 @@ class Agent:
             self._pre_plan_mode = self.permission_mode
             self.permission_mode = "plan"
             self._plan_file_path =  self._generate_plan_file_path()
-            self._ensure_plan_file()
             self._system_prompt = self._base_system_prompt + self._build_plan_mode_prompt()
             if self.use_openai and self._openai_messages:
                 self._openai_messages[0]["content"] = self._system_prompt
@@ -1468,9 +1514,11 @@ class Agent:
                 # 流式响应中一旦完整收到 tool_use block，如果工具是并发安全且权限允许，
                 # 就可以提前开始执行，减少等待完整模型响应后的空档时间。
                 if block["name"] in CONCURRENCY_SAFE_TOOLS:
-                    perm = check_permission(block["name"], block["input"], self.permission_mode, self._plan_file_path)
+                    block_input = self._normalize_plan_file_input(block["name"], block["input"])
+                    block["input"] = block_input
+                    perm = check_permission(block["name"], block_input, self.permission_mode, self._plan_file_path)
                     if perm["action"]=="allow":
-                        task =asyncio.create_task(self._execute_tool_call(block["name"], block["input"]))
+                        task =asyncio.create_task(self._execute_tool_call(block["name"], block_input))
                         early_executions[block["id"]] = task
 
 
@@ -1532,6 +1580,7 @@ class Agent:
 
                 # 将工具入参转为普通 dict，便于权限检查、打印和实际执行。
                 inp = dict(tu.input) if hasattr(tu, "items") else tu.input
+                inp = self._normalize_plan_file_input(tu.name, inp)
                 print_tool_call(tu.name, inp)
 
                 # 如果这个工具已经在流式阶段提前开始执行，这里只需要等待它完成并收集结果。
@@ -1784,6 +1833,8 @@ class Agent:
                     inp = json.loads(tc["function"]["arguments"])
                 except Exception:
                     inp = {}
+
+                inp = self._normalize_plan_file_input(fn_name, inp)
 
                 print_tool_call(fn_name, inp)
 

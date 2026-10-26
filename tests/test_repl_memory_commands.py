@@ -109,6 +109,7 @@ class _StubAgent:
         self._output_buffer = None
         self.permission_mode = "default"
         self.chat_requests = []
+        self.plan_drafts = []
 
     def set_confirm_fn(self, fn):
         pass
@@ -119,9 +120,13 @@ class _StubAgent:
     def abort(self):
         pass
 
-    def toggle_plan_mode(self):
+    def toggle_plan_mode(self, task=None):
         self.permission_mode = "default" if self.permission_mode == "plan" else "plan"
         return self.permission_mode
+
+    def create_plan_draft(self, task):
+        self.plan_drafts.append(task)
+        return "memory/plans/添加联网功能.md"
 
     async def chat(self, prompt):
         self.chat_requests.append(prompt)
@@ -201,7 +206,10 @@ def test_plans_create_enters_plan_mode_and_chats(monkeypatch):
     agent = _drive_repl(monkeypatch, ["/plans-create 添加联网功能"])
 
     assert agent.permission_mode == "plan"
-    assert agent.chat_requests == ["添加联网功能"]
+    assert agent.plan_drafts == ["添加联网功能"]
+    assert len(agent.chat_requests) == 1
+    assert "添加联网功能" in agent.chat_requests[0]
+    assert "memory/plans/添加联网功能.md" in agent.chat_requests[0]
 
 
 def test_plans_create_requires_a_task(monkeypatch, capsys):

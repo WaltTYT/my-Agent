@@ -318,8 +318,20 @@ async def run_repl(agent: Agent) -> None:
                 continue
             if agent.permission_mode == "plan":
                 agent.toggle_plan_mode()
-            agent.toggle_plan_mode()
-            await agent.chat(request)
+            agent.toggle_plan_mode(request)
+            try:
+                plan_path = agent.create_plan_draft(request)
+            except Exception as exc:
+                print_error(f"创建计划失败：{exc}")
+                agent.toggle_plan_mode()
+                continue
+            await agent.chat(
+                f"请直接完善当前计划文件，不要创建其他计划文件。"
+                f"当前计划文件是：{plan_path}\n"
+                f"任务：{request}\n"
+                "请基于初稿补充背景、实施步骤、验证方式、风险与假设；"
+                "缺少信息时写明合理假设，不要向我追问。"
+            )
             continue
         if inp == "/plan":
             agent.toggle_plan_mode()
@@ -327,7 +339,7 @@ async def run_repl(agent: Agent) -> None:
         if inp.startswith("/plan "):
             request = inp[len("/plan"):].strip()
             if agent.permission_mode != "plan":
-                agent.toggle_plan_mode()
+                agent.toggle_plan_mode(request)
             await agent.chat(request)
             continue
         if inp == "/cost":

@@ -83,17 +83,16 @@ def test_request_tool_definitions_follows_current_mode():
     assert "save_memory" not in {t["name"] for t in agent._request_tool_definitions()}
 
 
-def test_entering_plan_mode_creates_the_plan_file(tmp_path, monkeypatch):
+def test_entering_plan_mode_does_not_create_the_plan_file(tmp_path, monkeypatch):
     agent = make_agent()
     plan_path = tmp_path / "plan.md"
     monkeypatch.setattr(agent, "_generate_plan_file_path", lambda: str(plan_path))
 
     assert agent.toggle_plan_mode() == "plan"
-    assert plan_path.exists()
-    assert plan_path.read_text(encoding="utf-8") == ""
+    assert not plan_path.exists()
 
 
-def test_enter_plan_tool_creates_the_plan_file(tmp_path, monkeypatch):
+def test_enter_plan_tool_does_not_create_the_plan_file(tmp_path, monkeypatch):
     agent = make_agent()
     plan_path = tmp_path / "plan-from-tool.md"
     monkeypatch.setattr(agent, "_generate_plan_file_path", lambda: str(plan_path))
@@ -101,7 +100,46 @@ def test_enter_plan_tool_creates_the_plan_file(tmp_path, monkeypatch):
     result = asyncio.run(agent._execute_plan_mode_tool("enter_plan_mode"))
 
     assert "plan-from-tool.md" in result
-    assert plan_path.exists()
+    assert not plan_path.exists()
+
+
+def test_create_plan_draft_writes_task_content(tmp_path, monkeypatch):
+    agent = make_agent()
+    plan_path = tmp_path / "添加联网功能.md"
+    monkeypatch.setattr(agent, "_generate_plan_file_path", lambda task=None: str(plan_path))
+    agent.toggle_plan_mode("添加联网功能")
+
+    result = agent.create_plan_draft("添加联网功能")
+
+    assert result == str(plan_path)
+    content = plan_path.read_text(encoding="utf-8")
+    assert "添加联网功能" in content
+    assert "## 实施步骤" in content
+
+
+def test_plan_file_names_avoid_existing_names(tmp_path, monkeypatch):
+    agent = make_agent()
+    monkeypatch.setattr(agent_module, "plans_dir", lambda: tmp_path)
+    (tmp_path / "添加-联网功能.md").write_text("existing", encoding="utf-8")
+
+    path = Path(agent._generate_plan_file_path("添加/联网功能"))
+
+    assert path.name == "添加-联网功能-2.md"
+    assert not path.exists()
+
+
+def test_plan_mode_redirects_writes_to_the_current_plan_file(tmp_path, monkeypatch):
+    agent = make_agent()
+    plan_path = tmp_path / "当前计划.md"
+    monkeypatch.setattr(agent, "_generate_plan_file_path", lambda task=None: str(plan_path))
+    agent.toggle_plan_mode("当前计划")
+
+    normalized = agent._normalize_plan_file_input(
+        "write_file",
+        {"file_path": str(tmp_path / "错误文件名.md"), "content": "# 计划\n"},
+    )
+
+    assert normalized["file_path"] == str(plan_path)
 
 
 def test_new_plan_file_can_be_written_without_a_re_read(tmp_path, monkeypatch):
@@ -132,8 +170,8 @@ def test_each_plan_mode_entry_gets_a_new_file():
     second_plan = Path(agent._plan_file_path)
 
     assert first_plan != second_plan
-    assert first_plan.exists()
-    assert second_plan.exists()
+    assert not first_plan.exists()
+    assert not second_plan.exists()
 
 
 def test_plan_mode_subagent_returns_analysis_without_owning_plan_file(monkeypatch):
