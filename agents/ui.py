@@ -51,6 +51,8 @@ def print_welcome() -> None:
     commands.add_row("/skill-create", "创建可复用技能")
     commands.add_row("/skill-stats", "查看技能进化统计")
     commands.add_row("/memory", "列出长期记忆")
+    commands.add_row("/remember", "强制保存一条长期记忆")
+    commands.add_row("/forget", "按名称或文件名删除记忆")
     commands.add_row("/compact", "压缩当前上下文")
     commands.add_row("exit", "退出会话")
 

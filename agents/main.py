@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import re
 import signal
 import sys
 from urllib.parse import urlparse
@@ -26,7 +27,7 @@ from .ui import (
     print_warning,
 )
 from .session import load_session, get_latest_session_id
-from .memory import list_memories
+from .memory import VALID_TYPES, MemoryEntry, delete_memory, list_memories, save_memory
 from .skills import (
     create_skill,
     discover_skills,
@@ -121,6 +122,69 @@ def _resolve_api_config(cli_api_base: str | None) -> tuple[str | None, str | Non
         return None, generic_api_key, False
 
     return None, None, False
+
+
+def _derive_memory_name(content: str) -> str:
+    """从记忆正文里取一行当标题：压缩空白并限制长度，避免标题里塞进整段内容。"""
+    stripped = content.strip()
+    if not stripped:
+        return ""
+    first_line = stripped.splitlines()[0]
+    return re.sub(r"\s+", " ", first_line).strip()[:30]
+
+
+def _parse_remember_args(raw: str) -> dict[str, str] | None:
+    """把 /remember 的参数解析成 save_memory 需要的字段，失败返回 None。
+
+    支持三种写法，字段缺省时逐级回退：
+      /remember <内容>                          类型默认 user，标题和描述从内容推导
+      /remember <类型> <内容>                    首词是合法类型时按它归类
+      /remember <名称> | <描述> | <类型> | <内容>  全手工，末尾字段可省略但中间不能留空
+    这里刻意不调模型，保证用户说"记住"就一定写得下去。
+    """
+    text = raw.strip()
+    if not text:
+        return None
+
+    if "|" in text:
+        parts = [part.strip() for part in text.split("|", 3)]
+        # 允许省略末尾字段，但中间留空说明写错了，不能静默拿前一个字段顶上。
+        last_filled = max(i for i, part in enumerate(parts) if part)
+        if any(not part for part in parts[:last_filled + 1]):
+            return None
+        name = parts[0]
+        description = parts[1] if len(parts) > 1 and parts[1] else name
+        mem_type = parts[2] if len(parts) > 2 and parts[2] else "user"
+        content = parts[3] if len(parts) > 3 and parts[3] else name
+    else:
+        head, _, tail = text.partition(" ")
+        if tail.strip() and head.lower() in VALID_TYPES:
+            mem_type, content = head.lower(), tail.strip()
+        else:
+            mem_type, content = "user", text
+        name = _derive_memory_name(content)
+        description = name
+        if not name:
+            return None
+
+    if mem_type not in VALID_TYPES:
+        return None
+    return {"name": name, "description": description, "type": mem_type, "content": content}
+
+
+def _match_memories(query: str) -> list[MemoryEntry]:
+    """按文件名或关键词查找记忆，省得用户必须记住 user_xxx.md 这种文件名。"""
+    q = query.strip().lower()
+    memories = list_memories()
+    if not q:
+        return []
+    exact = [m for m in memories if m.filename.lower() == q]
+    if exact:
+        return exact
+    return [
+        m for m in memories
+        if q in m.name.lower() or q in m.description.lower() or q in m.filename.lower()
+    ]
 
 
 async def run_repl(agent: Agent) -> None:
@@ -220,6 +284,37 @@ async def run_repl(agent: Agent) -> None:
                 print_info("还没有保存任何记忆。")
             else:
                 print_memory_entries(memories)
+            continue
+        if inp == "/remember" or inp.startswith("/remember "):
+            fields = _parse_remember_args(inp[len("/remember"):])
+            if not fields:
+                print_error("用法：/remember <内容>  或  /remember <名称> | <描述> | <类型> | <内容>")
+                continue
+            try:
+                filename = save_memory(**fields)
+            except ValueError as e:
+                print_error(str(e))
+                continue
+            print_info(f"已保存记忆：{fields['name']}（{filename}）")
+            continue
+        if inp == "/forget" or inp.startswith("/forget "):
+            query = inp[len("/forget"):].strip()
+            if not query:
+                print_error("用法：/forget <文件名或关键词>")
+                continue
+            matches = _match_memories(query)
+            if not matches:
+                print_error(f"没有找到匹配的记忆：{query}")
+                continue
+            if len(matches) > 1:
+                print_warning(f"匹配到 {len(matches)} 条，请用更具体的关键词或直接给文件名：")
+                print_memory_entries(matches)
+                continue
+            target = matches[0]
+            if delete_memory(target.filename):
+                print_info(f"已删除记忆：{target.name}（{target.filename}）")
+            else:
+                print_error(f"删除失败：{target.filename}")
             continue
         if inp == "/skills":
             skills = discover_skills()
@@ -353,6 +448,8 @@ REPL 命令：
   /cost               显示 token 用量和费用
   /compact            手动压缩对话
   /memory             列出已保存的记忆
+  /remember           强制保存记忆：/remember <内容> 或 /remember <名称> | <描述> | <类型> | <内容>
+  /forget             删除记忆：/forget <文件名或关键词>
   /skills             列出可用技能
   /skill-stats        显示技能使用与进化统计
   /skill-eval         评估在线技能进化质量
