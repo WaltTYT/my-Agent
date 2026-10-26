@@ -46,7 +46,17 @@ PLAN_DELEGATE_INSTRUCTIONS = (
 
 def _is_retryable(error: Exception) -> bool:
     status = getattr(error, "status_code", None) or getattr(error, "status", None)
-    if status in (429, 503, 529):
+    if status == 429:
+        message = str(error).lower()
+        quota_errors = (
+            "1113",
+            "余额不足",
+            "无可用资源包",
+            "insufficient_quota",
+            "insufficient credits",
+        )
+        return not any(marker in message for marker in quota_errors)
+    if status in (503, 529):
         return True
     msg = str(error)
     if "overloaded" in msg or "ECONNRESET" in msg or "ETIMEDOUT" in msg:
@@ -312,6 +322,7 @@ class Agent:
     - Use search_web to find current documentation, best practices, or examples
     - Use get_web_content to examine specific pages or documentation
     - Include relevant URLs and research findings in your plan for better user understanding
+    - If an online tool reports an error, state that the information could not be verified; never infer current facts from a failed search.
 
     IMPORTANT: When your plan is complete, you MUST call exit_plan_mode. Do NOT ask the user to approve — exit_plan_mode handles that."""
 
@@ -1445,9 +1456,11 @@ class Agent:
 
 
             # 调用 Anthropic 流式接口；流式过程中完成 tool block 时会触发 _on_tool_block。
-            response = await self._call_anthropic_stream(on_tool_block_complete=_on_tool_block)
-            if not self.is_sub_agent:
-                stop_spinner()
+            try:
+                response = await self._call_anthropic_stream(on_tool_block_complete=_on_tool_block)
+            finally:
+                if not self.is_sub_agent:
+                    stop_spinner(newline=True)
 
             # 记录本次模型调用的耗时点和 token 消耗，用于成本展示与预算控制。
             self.last_api_call_time = time.time()
@@ -1708,10 +1721,11 @@ class Agent:
             if not self.is_sub_agent:
                 start_spinner()
 
-            response = await self._call_openai_stream()
-
-            if not self.is_sub_agent:
-                stop_spinner()
+            try:
+                response = await self._call_openai_stream()
+            finally:
+                if not self.is_sub_agent:
+                    stop_spinner(newline=True)
 
             self.last_api_call_time = time.time()
 

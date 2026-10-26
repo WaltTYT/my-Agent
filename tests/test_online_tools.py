@@ -84,6 +84,34 @@ def test_get_web_content_rejects_invalid_url_without_request():
     assert session.requests == []
 
 
+def test_search_web_returns_network_error_details():
+    class BrokenSession:
+        closed = False
+
+        def get(self, url, **kwargs):
+            raise OSError("network is unreachable")
+
+    tool = online_tools.OnlineSearchTool()
+    tool.session = BrokenSession()
+
+    result = asyncio.run(tool.search_web("current news"))
+
+    assert "OSError" in result
+    assert "network is unreachable" in result
+    assert "不要根据此错误推断搜索结果" in result
+
+
+def test_search_web_reports_http_failure_status():
+    session = FakeSession(FakeResponse(status=503))
+    tool = online_tools.OnlineSearchTool()
+    tool.session = session
+
+    result = asyncio.run(tool.search_web("current news"))
+
+    assert "HTTP 503" in result
+    assert "不要根据此错误推断搜索结果" in result
+
+
 def test_execute_tool_dispatches_online_tools_as_async_calls(monkeypatch):
     async def fake_search(query, max_results):
         return f"search:{query}:{max_results}"

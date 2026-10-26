@@ -13,6 +13,16 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+def _network_error(operation: str, error: Exception) -> str:
+    detail = str(error).strip() or error.__class__.__name__
+    if isinstance(error, asyncio.TimeoutError):
+        detail = "请求超时"
+    return (
+        f"网络{operation}失败（{error.__class__.__name__}: {detail}）。"
+        "请检查网络连接、防火墙或代理设置；不要根据此错误推断搜索结果。"
+    )
+
 class OnlineSearchTool:
     """网络搜索工具，用于获取最新信息"""
 
@@ -24,7 +34,7 @@ class OnlineSearchTool:
         """获取或创建 aiohttp 会话"""
         if self.session is None or self.session.closed:
             timeout = aiohttp.ClientTimeout(total=self.timeout)
-            self.session = aiohttp.ClientSession(timeout=timeout)
+            self.session = aiohttp.ClientSession(timeout=timeout, trust_env=True)
         return self.session
 
     async def search_web(self, query: str, max_results: int = 5) -> str:
@@ -44,7 +54,10 @@ class OnlineSearchTool:
             # 使用 DuckDuckGo Instant Answer API (无需API key)
             search_url = f"https://api.duckduckgo.com/?q={quote(query)}&format=json&no_html=1&skip_disambig=1"
 
-            async with session.get(search_url) as response:
+            async with session.get(
+                search_url,
+                headers={"User-Agent": "Lily/1.0 web search"},
+            ) as response:
                 if response.status == 200:
                     data = await response.json()
 
@@ -88,13 +101,11 @@ class OnlineSearchTool:
 
                     return output
 
-                else:
-                    return f"搜索请求失败，状态码: {response.status}"
+                return f"网络搜索失败（HTTP {response.status}）。不要根据此错误推断搜索结果。"
 
         except Exception as e:
             logger.error(f"网络搜索错误: {e}")
-            # 返回一个友好的错误消息，而不是技术细节
-            return f"无法访问网络搜索服务。请检查网络连接或稍后重试。"
+            return _network_error("搜索", e)
 
     async def get_web_content(self, url: str, max_length: int = 2000) -> str:
         """
@@ -143,12 +154,11 @@ class OnlineSearchTool:
 
                     return f"网页标题: {title}\n\n内容摘要:\n{text_content}"
 
-                else:
-                    return f"无法访问网页，状态码: {response.status}"
+                return f"网页访问失败（HTTP {response.status}）。不要根据此错误推断页面内容。"
 
         except Exception as e:
             logger.error(f"获取网页内容错误: {e}")
-            return f"获取网页内容时发生错误: {str(e)}"
+            return _network_error("取网页内容", e)
 
     async def close(self):
         """关闭会话"""

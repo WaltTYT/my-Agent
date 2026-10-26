@@ -248,7 +248,7 @@ def start_spinner(label: str = "思考中") -> None:
     _spinner_thread.start()
 
 
-def stop_spinner() -> None:
+def stop_spinner(*, newline: bool = False) -> None:
     global _spinner_thread
     if _spinner_thread is None:
         return
@@ -256,6 +256,8 @@ def stop_spinner() -> None:
     _spinner_thread.join(timeout=1)
     _spinner_thread = None
     _safe_stdout_write("\r\033[K")
+    if newline:
+        _safe_stdout_write("\n")
 
 
 # ─── Plan approval display ──────────────────────────────────
