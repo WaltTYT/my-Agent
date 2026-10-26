@@ -182,6 +182,8 @@ def print_cost(input_tokens: int, output_tokens: int) -> None:
     table.add_row("输入", f"{input_tokens} tokens")
     table.add_row("输出", f"{output_tokens} tokens")
     table.add_row("预估", f"${total:.4f}")
+    # 流式助手输出可能没有以换行结束，费用面板必须从下一行开始绘制。
+    console.print()
     console.print(Panel(table, title="费用", border_style="cyan", box=box.ROUNDED))
 
 
