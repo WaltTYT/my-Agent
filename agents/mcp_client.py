@@ -31,11 +31,32 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
 
 from .ui import print_error, print_info
+
+
+def _resolve_command(command: str) -> str:
+    """把配置里的命令名解析成真实可执行文件路径。
+
+    Windows 上 npx、npm、pip 这类命令实际是 .cmd 批处理文件，而底层 CreateProcess
+    只会自动补 .exe，不会按 PATHEXT 搜索，所以直接把 "npx" 交给子进程会报
+    [WinError 2] 系统找不到指定的文件。shutil.which 会按 PATHEXT 查找，能拿到
+    真实的 npx.cmd 路径；Linux 和 macOS 上它同样适用，因此配置里可以继续写裸命令名。
+    """
+    # 配置里已经写了明确路径时，尊重原值，不做 PATH 查找。
+    if Path(command).exists():
+        return command
+    resolved = shutil.which(command)
+    if not resolved:
+        # 换成中文提示，避免只剩一句看不懂的错误码。
+        raise FileNotFoundError(
+            f"找不到命令 {command!r}，请确认它已安装并且在 PATH 中"
+        )
+    return resolved
 
 
 # ─── 单个 MCP 连接：一个 McpConnection 对应一个 MCP Server 子进程 ──────────────────
@@ -71,8 +92,10 @@ class McpConnection:
         # - stdin：客户端向 Server 写 JSON-RPC 请求。
         # - stdout：Server 向客户端返回 JSON-RPC 响应。
         # - stderr：保留错误输出管道，避免 Server 继承当前终端输出。
+        # 先解析命令，再启动子进程；Windows 下这一步不能省略。
+        executable = _resolve_command(self.command)
         self._process = await asyncio.create_subprocess_exec(
-            self.command, *self.args,
+            executable, *self.args,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -180,18 +203,28 @@ class McpConnection:
         # 如果不是标准 content list，就退回为 JSON 字符串，避免丢失信息。
         return json.dumps(result)
 
-    def close(self) -> None:
-        """关闭 MCP Server 子进程，并让所有等待中的请求失败。"""
+    async def aclose(self) -> None:
+        """关闭 MCP Server 子进程，并回收它的管道，最后让等待中的请求失败。"""
         if self._reader_task:
             # 停止 stdout 后台读取任务。
             self._reader_task.cancel()
+            # 等它真正退出；只 cancel 不 await 会留下未完成任务，退出时继续报噪声。
+            await asyncio.gather(self._reader_task, return_exceptions=True)
             self._reader_task = None
         if self._process:
             try:
-                # 直接杀掉子进程，确保外部 MCP Server 不继续残留。
+                # 先关 stdin，再杀进程并等待退出。Windows 的 Proactor 事件循环必须
+                # 等进程结束才会释放管道 transport，否则解释器退出时会刷
+                # "unclosed transport ... I/O operation on closed pipe"。
+                if self._process.stdin:
+                    self._process.stdin.close()
                 self._process.kill()
+                await asyncio.wait_for(self._process.wait(), timeout=5.0)
             except ProcessLookupError:
                 # 进程已经退出时 kill 可能抛出该异常，忽略即可。
+                pass
+            except asyncio.TimeoutError:
+                # 极端情况下子进程卡住不退出，这里不再等待，直接丢弃引用。
                 pass
             self._process = None
         # 连接关闭后，所有还没收到响应的请求都不可能再完成，需要显式置为异常。
@@ -256,7 +289,7 @@ class McpManager:
             except Exception as e:
                 # 单个 Server 失败不影响其他 Server。失败连接需要关闭以清理子进程。
                 print_error(f"MCP 连接失败：{name}：{e}")
-                conn.close()
+                await conn.aclose()
 
     def get_tool_definitions(self) -> list[dict]:
         """返回 Agent/Anthropic 可直接使用的工具定义，并给 MCP 工具名加前缀。"""
@@ -293,7 +326,7 @@ class McpManager:
     async def disconnect_all(self) -> None:
         """断开所有 MCP Server 连接，并清空工具缓存。"""
         for conn in self._connections.values():
-            conn.close()
+            await conn.aclose()
         self._connections.clear()
         self._tools.clear()
         self._connected = False
@@ -323,7 +356,7 @@ class McpManager:
         if not path.exists():
             return
         try:
-            raw = json.loads(path.read_text())
+            raw = json.loads(path.read_text(encoding="utf-8"))
             # 支持两种格式：
             # 1. {"mcpServers": {"name": {...}}}
             # 2. {"name": {...}}
