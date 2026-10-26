@@ -55,12 +55,12 @@ def test_edit_rejects_ambiguous_old_string(isolated_env):
 
 
 def test_edit_matches_through_curly_quotes(isolated_env):
-    (isolated_env / "a.py").write_text("print(“hello”)\n")
+    (isolated_env / "a.py").write_text("print(“hello”)\n", encoding="utf-8")
     state = {}
     run("read_file", {"file_path": "a.py"}, state)
     result = run("edit_file", {"file_path": "a.py", "old_string": 'print("hello")', "new_string": 'print("hi")'}, state)
     assert "quote normalization" in result
-    assert (isolated_env / "a.py").read_text() == 'print("hi")\n'
+    assert (isolated_env / "a.py").read_text(encoding="utf-8") == 'print("hi")\n'
 
 
 def test_unknown_tool():
