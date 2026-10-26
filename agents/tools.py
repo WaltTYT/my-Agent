@@ -235,18 +235,16 @@ def _resolve_tool_path(raw_path: str, *, must_exist: bool = True) -> Path:
     if path.exists() or not path.is_absolute():
         return path
 
-    # 写入场景：绝对路径的父目录本身存在，说明就是要在该位置创建，直接返回，
-    # 避免下面的回退逻辑把 Desktop 等目录外路径错误重映射到 cwd 下。
-    if not must_exist and path.parent.exists():
+    # 写入场景：绝不重映射，写到模型声明的位置（由调用方 mkdir 父目录），
+    # 失败就明确报错，避免幽灵路径被静默落到项目根目录。
+    if not must_exist:
         return path
 
     parts = path.parts
     cwd = Path.cwd()
     for i in range(1, len(parts)):
         candidate = cwd.joinpath(*parts[i:])
-        if must_exist and candidate.exists():
-            return candidate
-        if not must_exist and candidate.parent.exists():
+        if candidate.exists():
             return candidate
 
     return path
@@ -275,7 +273,7 @@ def _write_file(inp:dict) -> str:
         trunc = f"\n  ... ({line_count} lines total)" if line_count > 30 else ""
         return f"Successfully wrote to {inp['file_path']} ({line_count} lines)\n\n{preview}{trunc}"
     except Exception as e:
-        return f"Error writing file: {e}"
+        return f"Error writing file: {type(e).__name__}: {e} (目标: {inp['file_path']})"
 
 def _auto_update_memory_index(file_path:str) -> None:
     try:
