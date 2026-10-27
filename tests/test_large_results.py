@@ -118,3 +118,44 @@ def test_read_file_schema_exposes_paging():
     assert {"offset", "limit"} <= set(schema["properties"])
     # 不能设成必填，否则所有旧的整读调用都会被打断。
     assert schema["required"] == ["file_path"]
+
+
+def test_execute_tool_no_longer_cuts_the_middle_of_large_results(tmp_path):
+    # 旧管线在 execute_tool 里先掐头去尾，落盘时中段已经没了。
+    body = "\n".join(
+        "MIDDLE_MARKER line" if i == 1000 else f"line_{i}_" + "x" * 70
+        for i in range(tools.MAX_READ_LIMIT)
+    )
+    path = tmp_path / "wide.py"
+    path.write_text(body, encoding="utf-8")
+
+    out = read(str(path), offset=1, limit=tools.MAX_READ_LIMIT)
+    assert len(out) > tools.MAX_RESULT_CHARS
+    assert "MIDDLE_MARKER line" in out
+
+
+def test_persisted_file_keeps_the_middle_of_an_over_cap_result():
+    agent = make_agent()
+    lines = ["HEAD_MARKER first"]
+    lines += [f"filler_{i}_" + "x" * 60 for i in range(1200)]
+    lines[600] = "MIDDLE_MARKER middle"
+    lines.append("TAIL_MARKER last")
+    big = "\n".join(lines)
+    assert len(big) > tools.MAX_RESULT_CHARS
+
+    message = agent._persist_large_result("grep_search", big, {})
+    saved = Path(message.split("saved to ")[1].split(" for the user")[0])
+    content = saved.read_text(encoding="utf-8")
+    assert "MIDDLE_MARKER middle" in content
+    assert content.rstrip().endswith("TAIL_MARKER last")
+    assert "HEAD_MARKER first" in message
+
+
+def test_preview_is_char_capped_for_single_line_results():
+    agent = make_agent()
+    big = "z" * 400_000
+    message = agent._persist_large_result("grep_search", big, {})
+    assert len(message) < 20_000
+    saved = Path(message.split("saved to ")[1].split(" for the user")[0])
+    assert saved.stat().st_size == len(big.encode())
+    assert "preview truncated" in message

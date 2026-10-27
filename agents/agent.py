@@ -1329,12 +1329,17 @@ class Agent:
 
     def _persist_large_result(self, tool_name: str, result: str, tool_input: dict | None = None) -> str:
         THRESHOLD = 30 * 1024  # 30 KB
+        PREVIEW_CHARS = 15000
+        MAX_SAVED_BYTES = 10 * 1024 * 1024
         #转换成字节
         if (len (result.encode())) <= THRESHOLD:
             return result
 
         lines = result.split("\n")
         preview = "\n".join(lines[:200])
+        # 单行大结果时 200 行预览照样能撑爆上下文，按字符再兜底。
+        if len(preview) > PREVIEW_CHARS:
+            preview = preview[:PREVIEW_CHARS] + "\n[... preview truncated ...]"
 
         # 死循环防护：读回来的正是上一轮落盘的大结果时，再存一份只会得到同样的超限
         # 文件并再次邀请模型去读，模型于是无限重复。这里直接截断返回，不再落盘。
@@ -1348,16 +1353,29 @@ class Agent:
         d = tool_results_dir()
         filename = f"{int(time.time() * 1000)}-{tool_name}.txt"
         filepath = d / filename
-        filepath.write_text(result, encoding="utf-8")
+        body_bytes = result.encode()
+        saved_truncated = len(body_bytes) > MAX_SAVED_BYTES
+        if saved_truncated:
+            # errors=ignore 回退到完整字符边界，避免把 UTF-8 序列切坏。
+            body = body_bytes[:MAX_SAVED_BYTES].decode("utf-8", errors="ignore")
+            body += "\n\n[... file truncated at 10 MB ...]"
+        else:
+            body = result
+        filepath.write_text(body, encoding="utf-8")
 
         size_kb = len(result.encode()) / 1024
+        saved_note = (
+            f"The first 10 MB were saved to {filepath} for the user to inspect (the source was larger). "
+            if saved_truncated
+            else f"The full text was saved to {filepath} for the user to inspect. "
+        )
 
         # 旧文案写着 "You can use read_file to see the full result"，而那个文件本身又超过
         # 阈值，模型照着做就会无限重新落盘。必须明确禁止整份回读。
         return (
             f"[Result too large ({size_kb:.1f} KB, {len(lines)} lines). "
-            f"Only the preview below is in your context. The full text was saved to {filepath} "
-            f"for the user to inspect. Do NOT read_file that whole file — it is equally large and "
+            f"Only the preview below is in your context. {saved_note}"
+            f"Do NOT read_file that whole file — it is equally large and "
             f"will be truncated again. To see a specific part, call read_file with offset and limit, "
             f"or use grep_search to locate the lines you need.]\n\n"
             f"Preview (first 200 lines):\n{preview}"

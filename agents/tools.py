@@ -1084,7 +1084,7 @@ async def execute_tool(
                 read_file_state[abs_path] =  os.path.getmtime(abs_path)
             except OSError:
                 pass
-        return _truncate_result(result)
+        return result
 
     if name in ("write_file", "edit_file") and read_file_state is not None:
         abs_path = str(_resolve_tool_path(inp["file_path"], must_exist=(name == "edit_file")).resolve())
@@ -1126,7 +1126,7 @@ async def execute_tool(
             rationale=inp.get("rationale", ""),
             target=inp.get("target", "active"),
         )
-        return _truncate_result(json.dumps(result, ensure_ascii=False, indent=2))
+        return json.dumps(result, ensure_ascii=False, indent=2)
 
     if name == "skill_create":
         from .skills import create_skill
@@ -1142,7 +1142,7 @@ async def execute_tool(
             allowed_tools=inp.get("allowed_tools"),
             evidence=inp.get("evidence", ""),
         )
-        return _truncate_result(json.dumps(result, ensure_ascii=False, indent=2))
+        return json.dumps(result, ensure_ascii=False, indent=2)
 
     # 联网工具处理
     if name == "search_web":
@@ -1153,7 +1153,7 @@ async def execute_tool(
             return "Error: query is required for web search"
         try:
             result = await search_web(query, max_results)
-            return _truncate_result(result)
+            return result
         except Exception as e:
             return f"Error searching web: {str(e)}"
 
@@ -1166,7 +1166,7 @@ async def execute_tool(
         try:
             # 运行异步函数
             result = await get_web_content(url, max_length)
-            return _truncate_result(result)
+            return result
         except Exception as e:
             return f"Error getting web content: {str(e)}"
 
@@ -1205,7 +1205,7 @@ async def execute_tool(
             except Exception as e:
                 return f"Error: invalid save_to path: {e}"
         try:
-            return _truncate_result(await http_request(
+            return await http_request(
                 method=method,
                 url=url,
                 headers=inp.get("headers"),
@@ -1213,7 +1213,7 @@ async def execute_tool(
                 body=inp.get("body"),
                 timeout=inp.get("timeout", 60),
                 save_to=save_to,
-            ))
+            )
         except Exception as e:
             return f"Error in http_request: {e}"
 
@@ -1255,7 +1255,7 @@ async def execute_tool(
     if not handler:
         return f"Unknown tool: {name}"
 
-    result = _truncate_result(handler(inp))
+    result = handler(inp)
 
     # 更新时间
     if name in ("write_file", "edit_file") and read_file_state is not None and not result.startswith("Error"):
