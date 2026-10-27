@@ -16,8 +16,13 @@ This skill only works because Lily has the `http_request` tool; it never fabrica
 ## 1. Resolve the prompt and target path
 
 - Use the user's prompt verbatim. Ask for clarification only if no subject is given at all.
-- Target file: use the path the user asked for. Otherwise save to `~/Desktop/<short-slug>.png`,
-  where `<short-slug>` is 2-4 English words derived from the prompt.
+- Target file: use the absolute path the user asked for. Otherwise save into the desktop directory
+  listed in the Environment section of your system prompt (the `Desktop:` line), e.g.
+  `C:\Users\Walt\Desktop\<short-slug>.png`. `<short-slug>` is 2-4 English words from the prompt.
+- Hard rules for `save_to`: no placeholders such as `<user>` or `%USERPROFILE%` (they are literally
+  invalid on Windows), and no bare relative path like `Desktop\x.png` (it resolves against the
+  project directory). If you do not know the desktop path, pass `~/Desktop/<short-slug>.png`;
+  the tool expands `~` to the real home directory.
 - Default model: `cogview-3-flash`. Use another model only if the user names one.
 
 ## 2. Resolve the API key

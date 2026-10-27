@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from agents import online_tools, tools
+from agents import online_tools, prompt as prompt_module, tools
 
 
 class FakeResponse:
@@ -228,3 +228,54 @@ def test_execute_tool_dispatches_http_request(monkeypatch):
     assert captured["method"] == "POST"
     assert captured["json_body"] == {"q": 1}
     assert captured["save_to"] is None
+
+
+def test_save_to_rejects_placeholder_path(monkeypatch):
+    """模型照抄 `<user>` 占位符时必须明确报错，而不是抛 WinError 123。"""
+    captured = {}
+
+    async def fake_http_request(**kwargs):
+        captured.update(kwargs)
+        return "should not run"
+
+    monkeypatch.setattr(online_tools, "http_request", fake_http_request)
+
+    result = asyncio.run(tools.execute_tool(
+        "http_request",
+        {"url": "https://img.example/1.png", "save_to": r"C:\Users\<user>\Desktop\cat.png"},
+    ))
+
+    assert "非法字符" in result
+    assert "占位符" in result
+    assert captured == {}
+
+
+def test_system_prompt_lists_desktop(monkeypatch, tmp_path):
+    desktop = tmp_path / "Desktop"
+    desktop.mkdir()
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    prompt = prompt_module.build_system_prompt()
+
+    assert f"Desktop: {desktop}" in prompt
+
+
+def test_save_to_expands_home(monkeypatch, tmp_path):
+    """~ 必须指向用户主目录，不能按 cwd 解析成项目下的 "~" 目录。"""
+    captured = {}
+
+    async def fake_http_request(**kwargs):
+        captured.update(kwargs)
+        return "HTTP 200\nok"
+
+    monkeypatch.setattr(online_tools, "http_request", fake_http_request)
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    asyncio.run(tools.execute_tool(
+        "http_request",
+        {"url": "https://img.example/1.png", "save_to": "~/Desktop/cat.png"},
+    ))
+
+    assert captured["save_to"] == str(tmp_path / "Desktop" / "cat.png")

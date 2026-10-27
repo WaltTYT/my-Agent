@@ -94,6 +94,8 @@ If you can say it in one sentence, don't use three. Prefer short, direct sentenc
 
 # Environment
 Working directory: {{cwd}}
+User home: {{home}}
+Desktop: {{desktop}}
 Date: {{date}}
 Platform: {{platform}}
 Shell: {{shell}}
@@ -213,6 +215,15 @@ def get_git_context() -> str:
         return ""
 
 
+def desktop_path() -> Path:
+    """返回当前用户真实的桌面目录，兼容 OneDrive 重定向；找不到时退回主目录。"""
+    home = Path.home()
+    for candidate in (home / "Desktop", home / "OneDrive" / "Desktop"):
+        if candidate.is_dir():
+            return candidate
+    return home
+
+
 def build_system_prompt(all_tools: list[dict] | None = None) -> str:
     """Build the full system prompt from embedded template + dynamic context.
 
@@ -236,6 +247,8 @@ def build_system_prompt(all_tools: list[dict] | None = None) -> str:
 
     replacements = {
         "{{cwd}}": str(Path.cwd()),
+        "{{home}}": str(Path.home()),
+        "{{desktop}}": str(desktop_path()),
         "{{date}}": today,
         "{{platform}}": plat,
         "{{shell}}": shell,

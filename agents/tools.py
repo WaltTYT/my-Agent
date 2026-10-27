@@ -351,7 +351,8 @@ tool_definitions: list[ToolDef] = [
 #----------------------工具调用----------------------------
 
 def _resolve_tool_path(raw_path: str, *, must_exist: bool = True) -> Path:
-    path = Path(raw_path)
+    # ~ 必须还原成用户主目录。否则它会按相对路径落到 cwd 下，生成一个名为 "~" 的目录。
+    path = Path(raw_path).expanduser()
     if path.exists() or not path.is_absolute():
         return path
 
@@ -984,6 +985,15 @@ async def execute_tool(
             return "Error: url is required for http_request"
         save_to = inp.get("save_to")
         if save_to:
+            bad = next((c for c in '<>"|?*' if c in str(save_to)), None)
+            if bad:
+                from .prompt import desktop_path
+
+                return (
+                    f"Error: save_to 含 Windows 非法字符 {bad!r}，无法创建文件。"
+                    f"请改用真实绝对路径，例如 {desktop_path()}\\image.png；"
+                    "不要写 <user>、%USERPROFILE% 之类的占位符，也不要传相对路径。"
+                )
             # save_to 是本次调用要新建的文件，不能要求它已经存在。
             try:
                 save_to = str(_resolve_tool_path(save_to, must_exist=False).resolve())
