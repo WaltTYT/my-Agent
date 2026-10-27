@@ -231,7 +231,7 @@ class Agent:
         self._last_tool_name: str = ""
 
         #构建系统提示词
-        self._base_system_prompt = custom_system_prompt or build_system_prompt()
+        self._base_system_prompt = custom_system_prompt or build_system_prompt(self.tools)
 
         # 计划文件属于父代理。子代理只返回分析结果，不创建或写入自己的计划文件。
         if self.permission_mode == "plan":
@@ -590,6 +590,9 @@ class Agent:
                 mcp_defs = self._mcp_manager.get_tool_definitions()
                 if mcp_defs:
                     self.tools = self.tools + mcp_defs
+                    # MCP 工具已改为延迟加载，必须重新生成提示词，把工具名写进
+                    # deferred 清单，否则模型根本不知道可以用 tool_search 找到它们。
+                    self._refresh_runtime_system_prompt()
             except Exception as e:
                 print_error(f"MCP 初始化失败：{e}")
 
@@ -678,7 +681,7 @@ class Agent:
     def _refresh_runtime_system_prompt(self) -> None:
         if self._custom_system_prompt is not None:
             return
-        self._base_system_prompt = build_system_prompt()
+        self._base_system_prompt = build_system_prompt(self.tools)
         if self.permission_mode == "plan":
             if self.is_sub_agent:
                 self._system_prompt = self._base_system_prompt + PLAN_DELEGATE_INSTRUCTIONS
@@ -1317,7 +1320,7 @@ class Agent:
             # Route MCP tool calls to the MCP manager
         if self._mcp_manager.is_mcp_tool(name):
             return await self._mcp_manager.call_tool(name, inp)
-        result = await execute_tool(name, inp, self._read_file_state)
+        result = await execute_tool(name, inp, self._read_file_state, self.tools)
         if name in {"write_file", "edit_file"}:
             self._adopt_plan_file_path(inp, result)
         if name in {"skill_create", "skill_evolve"}:

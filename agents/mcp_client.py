@@ -301,6 +301,10 @@ class McpManager:
                 "description": t.get("description") or f"MCP tool {t['name']} from {t['serverName']}",
                 # Anthropic 工具字段叫 input_schema；MCP 原始工具字段一般叫 inputSchema。
                 "input_schema": t.get("inputSchema") or {"type": "object", "properties": {}},
+                # MCP 工具数量多（如 playwright 单服务就 25 个），全量塞进每轮请求会把
+                # 上下文顶到几万 token，模型还会在无关场景乱挑。改为延迟工具，用时
+                # 通过 tool_search 按需激活。
+                "deferred": True,
             }
             for t in self._tools
         ]

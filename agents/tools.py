@@ -179,13 +179,26 @@ tool_definitions: list[ToolDef] = [
     },
     {
         "name": "skill_create",
-        "description": "Create a new reusable skill from explicit durable workflow guidance when no suitable existing skill exists.",
+        "description": (
+            "Create a new reusable skill from explicit durable workflow guidance when no suitable existing skill exists. "
+            "The instructions must be an executable workflow: concrete ordered steps, the tools or commands each step uses, "
+            "and the expected output. Never write placeholder steps such as 'ask the user for the API key' or 'call the model API' "
+            "as if they were executable. If the workflow requires a capability the assistant does not have "
+            "(for example calling an external HTTP API or generating images), state that limitation explicitly in the instructions "
+            "and tell the user which tool or MCP server must be configured."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "name": {"type": "string", "description": "Concise reusable skill name"},
                 "description": {"type": "string", "description": "One-sentence description of what the skill does and when to use it"},
-                "instructions": {"type": "string", "description": "Reusable SKILL.md body. Focus on durable method, constraints, and workflow, not one-off task content."},
+                "instructions": {
+                    "type": "string",
+                    "description": (
+                        "Required, non-empty SKILL.md body. Must contain concrete ordered steps (what to do, with which tool/file/path, "
+                        "and what output is produced). Focus on durable method and constraints, not one-off task content."
+                    ),
+                },
                 "when_to_use": {"type": "string", "description": "Trigger condition for auto-invocation"},
                 "target": {
                     "type": "string",
@@ -829,7 +842,8 @@ def check_permission(
 # 'agent' 和 'skill' 这两个工具在 agent.py 中处理，以避免循环依赖。"
 
 async def execute_tool(
-    name: str, inp: dict, read_file_state: dict[str, float] | None = None
+    name: str, inp: dict, read_file_state: dict[str, float] | None = None,
+    all_tools: list[ToolDef] | None = None,
 ) -> str:
     if name == "read_file":
         result = _read_file(inp)
@@ -854,7 +868,9 @@ async def execute_tool(
     #搜索和激活延迟加载的工具。
     if name == "tool_search":
         query = (inp.get("query") or "").lower()
-        deferred = [t for t in tool_definitions if t.get("deferred")]
+        # all_tools 里包含 MCP 工具，否则 MCP 的延迟工具永远搜不到。
+        pool = all_tools if all_tools is not None else tool_definitions
+        deferred = [t for t in pool if t.get("deferred")]
         matches = [
             t for t in deferred
             if query in t["name"].lower() or query in (t.get("description") or "").lower()

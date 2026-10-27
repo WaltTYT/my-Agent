@@ -212,8 +212,11 @@ def get_git_context() -> str:
         return ""
 
 
-def build_system_prompt() -> str:
-    """Build the full system prompt from embedded template + dynamic context."""
+def build_system_prompt(all_tools: list[dict] | None = None) -> str:
+    """Build the full system prompt from embedded template + dynamic context.
+
+    all_tools 传入完整的工具定义（含 MCP 工具），延迟工具清单才能把 MCP 工具一并列出。
+    """
     from datetime import date
     today = date.today().isoformat()
     plat = f"{platform.system()} {platform.machine()}"
@@ -224,7 +227,7 @@ def build_system_prompt() -> str:
     skills_section = build_skill_descriptions()
     agent_section = build_agent_descriptions()
 
-    deferred_names = get_deferred_tool_names()
+    deferred_names = get_deferred_tool_names(all_tools)
     deferred_section = (
         f"\n\nThe following deferred tools are available via tool_search: {', '.join(deferred_names)}. Use tool_search to fetch their full schemas when needed."
         if deferred_names else ""

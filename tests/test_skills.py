@@ -1,5 +1,5 @@
 from agents.frontmatter import format_frontmatter, parse_frontmatter
-from agents.skills import discover_skills, reset_skill_cache, retrieve_relevant_skills
+from agents.skills import create_skill, discover_skills, reset_skill_cache, retrieve_relevant_skills
 
 
 def write_skill(root, name, description, body):
@@ -43,3 +43,20 @@ def test_retrieval_returns_nothing_for_unrelated_query(isolated_env):
     write_skill(isolated_env, "code_review", "Review Python code for bugs", "Check correctness.")
     reset_skill_cache()
     assert retrieve_relevant_skills("weather tomorrow") == []
+
+
+# ─── 技能生成质量：禁止空壳 ─────────────────────────────────
+
+
+def test_create_skill_rejects_empty_instructions(isolated_env):
+    """instructions 为空时不能落盘：否则会填成通用模板，生成一个什么都干不了的技能。"""
+    result = create_skill("image_gen", "生成图片", instructions="   ")
+    assert result["ok"] is False
+    assert "instructions" in result["error"]
+    assert not (isolated_env / ".lily" / "skills" / "image_gen" / "SKILL.md").exists()
+
+
+def test_create_skill_accepts_executable_instructions(isolated_env):
+    instructions = "1. 用 read_file 读取配置。\n2. 用 write_file 写出结果到 output/report.md。"
+    result = create_skill("report_writer", "写报告", instructions=instructions)
+    assert result["ok"] is True

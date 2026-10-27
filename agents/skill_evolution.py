@@ -302,6 +302,16 @@ def create_skill_file(
         return {"ok": False, "error": "skill name is required"}
     if not str(description or "").strip():
         return {"ok": False, "error": "description is required"}
+    # 空 instructions 会被 _skill_body 填成通用三步模板，生成一个看似成功、实则
+    # 什么都干不了的技能。创建阶段必须强制模型写出可执行的流程。
+    if not str(instructions or "").strip():
+        return {
+            "ok": False,
+            "error": (
+                "instructions are required: write the concrete executable workflow "
+                "(ordered steps, the tool/file each step uses, and the expected output)."
+            ),
+        }
 
     existing = resolve_skill_file(resolved_name, target="active")
     if existing:

@@ -473,6 +473,10 @@ async def run_repl(agent: Agent) -> None:
                 await agent.chat(
                     "请直接用 skill_create 工具创建这个技能：名称、描述、触发条件、指令都由你根据"
                     "下面的需求补全，不要向我追问字段，也不要只输出模板。\n"
+                    "instructions 必须写成可执行流程：按顺序的具体步骤、每步用到的工具/文件/路径、"
+                    "最终产出物；禁止把“询问用户”“调用某个 API”这种本身无法执行的动作用来凑步骤。"
+                    "如果这个流程需要当前没有的能力（例如调用外部 HTTP 接口、生成图片），"
+                    "要在 instructions 里写明这个限制，并告诉我需要配置哪个工具或 MCP，不要假装能执行。\n"
                     f"需求：{request}"
                 )
             except Exception as exc:
