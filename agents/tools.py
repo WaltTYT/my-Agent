@@ -260,11 +260,11 @@ tool_definitions: list[ToolDef] = [
     # ─── 联网工具 ─────────────────────
     {
         "name": "search_web",
-        "description": "Search the web for information using DuckDuckGo API. Returns formatted search results with titles, content snippets, and URLs.",
+        "description": "Search the web for information (tries Bing first, then DuckDuckGo, so it works behind regional networks). Returns formatted search results with titles, content snippets, and URLs. IMPORTANT query format: use 2-5 short space-separated keywords, never a long unspaced sentence; search engines segment long Chinese strings poorly (write '亚运会 乒乓球 男单 冠军', not '2026亚运会乒乓球男单冠军'). Snippets may be incomplete: if the answer is not clearly in the snippets, follow up with get_web_content on the most promising URLs, or retry with different keywords before concluding the information does not exist.",
         "input_schema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "Search query string"},
+                "query": {"type": "string", "description": "Search keywords, 2-5 terms separated by spaces (e.g. \"亚运会 乒乓球 男单 冠军\"); do NOT write a long unspaced sentence"},
                 "max_results": {"type": "integer", "description": "Maximum number of results to return (default: 5)", "default": 5},
             },
             "required": ["query"],

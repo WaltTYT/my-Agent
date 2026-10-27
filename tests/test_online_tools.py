@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 
 from agents import online_tools, prompt as prompt_module, tools
 
@@ -36,7 +37,68 @@ class FakeSession:
         return self.response
 
 
-def test_search_web_formats_instant_answer_and_topics():
+BING_RSS = (
+    "<rss><channel>"
+    "<item><title>2026 Asian Games table tennis</title>"
+    "<link>https://news.example/asian-games</link>"
+    "<description>&lt;b&gt;Lin Shidong&lt;/b&gt; won the men singles title</description>"
+    "</item>"
+    "</channel></rss>"
+)
+
+
+def _bing_redirect(target: str) -> str:
+    token = base64.urlsafe_b64encode(target.encode()).decode().rstrip("=")
+    return f"https://www.bing.com/ck/a?!&&p=abc&u=a1{token}&ntab=1"
+
+
+BING_HTML = (
+    "<html><body><ol id=\"b_results\">"
+    "<li class=\"b_algo\">"
+    f"<h2><a href=\"{_bing_redirect('https://news.example/asian-games')}\">"
+    "2026年亚运会乒乓球&nbsp;男单决赛</a></h2>"
+    "<div class=\"b_caption\"><p>林诗栋夺得<em>男单</em>冠军，"
+    "4:0战胜王楚钦</p></div></li>"
+    "<li class=\"b_algo\">"
+    "<h2><a href=\"https://zh.wikipedia.org/wiki/x\">亚运会乒乓球比赛</a></h2>"
+    "<p>第20届亚洲运动会乒乓球项目</p></li>"
+    "</ol></body></html>"
+)
+
+
+def test_search_web_parses_bing_serp_and_decodes_redirect_links():
+    session = FakeSession(FakeResponse(body=BING_HTML))
+    tool = online_tools.OnlineSearchTool()
+    tool.session = session
+
+    result = asyncio.run(tool.search_web("2026 亚运会 乒乓球", max_results=3))
+
+    assert "https://news.example/asian-games" in result
+    assert "/ck/a" not in result
+    assert "林诗栋夺得 男单 冠军" in result
+    assert "<em>" not in result
+    assert "https://zh.wikipedia.org/wiki/x" in result
+    assert "bing.com" in session.requests[0][0]
+    assert "format=rss" not in session.requests[0][0]
+
+
+def test_search_web_falls_back_to_bing_rss_when_serp_empty():
+    session = FakeSession(FakeResponse(body=BING_RSS))
+    tool = online_tools.OnlineSearchTool()
+    tool.session = session
+
+    result = asyncio.run(tool.search_web("2026 亚运会 乒乓球", max_results=3))
+
+    assert "2026" in result
+    assert "https://news.example/asian-games" in result
+    assert "Lin Shidong" in result
+    assert "<b>" not in result
+    urls = [url for url, _ in session.requests]
+    assert "bing.com" in urls[0]
+    assert any("format=rss" in u for u in urls)
+
+
+def test_search_web_falls_back_to_duckduckgo_when_bing_empty():
     session = FakeSession(FakeResponse(payload={
         "AbstractText": "Python is a programming language.",
         "Heading": "Python",
@@ -53,8 +115,10 @@ def test_search_web_formats_instant_answer_and_topics():
     assert "Python is a programming language." in result
     assert "https://python.org/" in result
     assert "Python documentation" in result
-    assert "https://api.duckduckgo.com/" in session.requests[0][0]
-    assert "python%20language" in session.requests[0][0]
+    urls = [url for url, _ in session.requests]
+    assert any("bing.com" in u for u in urls)
+    ddg_urls = [u for u in urls if "api.duckduckgo.com/" in u]
+    assert ddg_urls and "python%20language" in ddg_urls[0]
 
 
 def test_get_web_content_extracts_page_text_and_strips_script():
@@ -293,3 +357,46 @@ def test_http_request_requires_explicit_method():
 
     assert "method" in result
     assert "POST" in result
+
+def test_normalize_query_splits_long_chinese_run():
+    assert (
+        online_tools._normalize_query("2026亚运会乒乓球男单冠军")
+        == "2026 亚运会 乒乓球 男单 冠军"
+    )
+    assert (
+        online_tools._normalize_query("请问2026年男子乒乓球亚运会冠军是谁")
+        == "2026 男子 乒乓球 亚运会 冠军"
+    )
+
+
+def test_normalize_query_leaves_spaced_and_short_queries_alone():
+    assert online_tools._normalize_query("亚运会 乒乓球 男单") == "亚运会 乒乓球 男单"
+    assert online_tools._normalize_query("python language") == "python language"
+    assert online_tools._normalize_query("乒乓球") == "乒乓球"
+
+
+def test_search_web_requests_normalized_keywords():
+    session = FakeSession(FakeResponse(body=BING_HTML))
+    tool = online_tools.OnlineSearchTool()
+    tool.session = session
+
+    result = asyncio.run(tool.search_web("2026亚运会乒乓球男单冠军", max_results=3))
+
+    assert "自动分词" in result
+    first_url = session.requests[0][0]
+    assert "%20" in first_url
+    assert "2026%20%E4%BA%9A%E8%BF%90%E4%BC%9A" in first_url  # "2026 Ã¤ÂºÂÃ¨Â¿ÂÃ¤Â¼Â"\n
+
+def test_search_web_drops_anchor_word_and_warns_when_irrelevant():
+    """结果始终不相关时：应去掉首个关键词重试，并在返回里明确警告，防止模型误判"信息不存在"。"""
+    session = FakeSession(FakeResponse(body=BING_HTML))
+    tool = online_tools.OnlineSearchTool()
+    tool.session = session
+
+    result = asyncio.run(tool.search_web("量子计算 股票 预测 模型", max_results=3))
+
+    assert "不相关" in result
+    # 每个候选查询走 3 个 Bing 端点；出现第二轮请求说明发生了重试
+    assert len(session.requests) >= 4
+    retried = [u for u, _ in session.requests[3:]]
+    assert any(online_tools.quote("股票 预测 模型") in u for u in retried)
