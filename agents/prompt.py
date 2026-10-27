@@ -216,7 +216,7 @@ def get_git_context() -> str:
         if status:
             result += f"\nGit status:\n{status}"
         return result
-    except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.CalledProcessError) as e:
+    except (OSError, subprocess.TimeoutExpired) as e:
         logger.warning("failed to collect git context: %s", e)
         return ""
 

@@ -546,7 +546,7 @@ def _grep_search(inp: dict) -> str:
                 if len(lines) >100:
                     output += f"\n... and {len(lines) - 100} more matches"
                 return output
-        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        except (subprocess.TimeoutExpired, OSError):
             pass
 
     return _grep_python(pattern, path, include)
@@ -580,7 +580,7 @@ def _grep_python(pattern: str, directory: str, include: str | None) -> str:
                         matches.append(f"{full}:{i+1}:{line}")
                         if len(matches) >= 200:
                             return
-            except (OSError, UnicodeDecodeError):
+            except OSError:
                 pass
 
     walk(directory)
