@@ -23,6 +23,12 @@ def make_agent() -> Agent:
     agent.permission_mode = "default"
     agent.is_sub_agent = False
     agent._last_retrieved_skill_hits = [{"name": "next_round_skill"}]
+    agent.model = "glm-4"
+    agent.total_input_tokens = 0
+    agent.total_output_tokens = 0
+    agent.current_turns = 0
+    agent.max_cost_usd = None
+    agent.max_turns = None
     return agent
 
 
@@ -98,6 +104,19 @@ def test_read_user_line_propagates_eof(monkeypatch):
         asyncio.run(cli._read_user_line())
 
 
+def _make_gate_agent(mode: str) -> Agent:
+    agent = Agent.__new__(Agent)
+    agent.permission_mode = mode
+    agent._last_retrieved_skill_hits = []
+    agent.model = "glm-4"
+    agent.total_input_tokens = 0
+    agent.total_output_tokens = 0
+    agent.current_turns = 0
+    agent.max_cost_usd = None
+    agent.max_turns = None
+    return agent
+
+
 def test_repl_reads_input_through_the_async_helper(monkeypatch):
     class StubAgent:
         def set_confirm_fn(self, fn):
@@ -122,3 +141,71 @@ def test_repl_reads_input_through_the_async_helper(monkeypatch):
 
     monkeypatch.setattr("builtins.input", boom)
     asyncio.run(cli.run_repl(StubAgent()))
+
+
+def test_background_evolution_skipped_when_write_would_be_denied(monkeypatch):
+    calls: list[dict] = []
+
+    async def fake_ingest(**kwargs):
+        calls.append(kwargs)
+        return {"ok": True, "action": "none"}
+
+    monkeypatch.setenv("LILY_AUTO_SKILL_EVOLUTION", "1")
+    monkeypatch.setattr(online_skill_evolution, "online_ingest", fake_ingest)
+
+    agent = _make_gate_agent("default")
+    agent._build_side_query = lambda **k: (lambda s, u: "")
+    window = {"messages": [{"role": "user", "content": "q"}]}
+
+    asyncio.run(agent._run_online_skill_evolution(window))
+    assert calls == []
+
+    asyncio.run(agent._run_online_skill_evolution(window, interactive_confirm=True))
+    assert len(calls) == 1
+    assert calls[0]["confirm_write"] == agent._confirm_online_skill_write
+
+    agent.permission_mode = "bypassPermissions"
+    asyncio.run(agent._run_online_skill_evolution(window))
+    assert len(calls) == 2
+    assert calls[1]["confirm_write"] == agent._confirm_background_online_skill_write
+
+
+def test_usage_tracking_skipped_when_side_query_budget_blocked(monkeypatch):
+    called: list[dict] = []
+
+    async def fake_judge(**kwargs):
+        called.append(kwargs)
+        return []
+
+    monkeypatch.setenv("LILY_AUTO_SKILL_EVOLUTION", "1")
+    monkeypatch.delenv("LILY_SIDE_QUERY_BUDGET", raising=False)
+    monkeypatch.setattr(online_skill_evolution, "judge_retrieved_skill_usage", fake_judge)
+
+    agent = _make_gate_agent("default")
+    agent.total_input_tokens = 2_000_000
+    agent.max_cost_usd = 0.01
+
+    asyncio.run(agent._run_skill_usage_tracking("q", "a", [{"name": "demo"}]))
+    assert called == []
+
+
+def test_judge_ignores_unusable_side_query_output():
+    async def side_empty(system: str, user: str) -> str:
+        return ""
+
+    async def side_garbage(system: str, user: str) -> str:
+        return "not json at all"
+
+    async def side_empty_list(system: str, user: str) -> str:
+        return '{"judgments": []}'
+
+    hits = [{"name": "demo", "source": "project", "score": 0.5}]
+
+    assert asyncio.run(online_skill_evolution.judge_retrieved_skill_usage(
+        hits=hits, user_message="q", assistant_text="a", side_query=side_empty)) == []
+    assert asyncio.run(online_skill_evolution.judge_retrieved_skill_usage(
+        hits=hits, user_message="q", assistant_text="a", side_query=side_garbage)) == []
+
+    rows = asyncio.run(online_skill_evolution.judge_retrieved_skill_usage(
+        hits=hits, user_message="q", assistant_text="a", side_query=side_empty_list))
+    assert len(rows) == 1 and rows[0]["used"] is False

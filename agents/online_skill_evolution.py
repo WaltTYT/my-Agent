@@ -348,6 +348,9 @@ async def judge_retrieved_skill_usage(
     )
     payload = {"user_message": user_message, "assistant_reply": assistant_text, "retrieved_skills": hits}
     parsed = _parse_json_object(await side_query(system, json.dumps(payload, ensure_ascii=False)))
+    # 空响应/预算短路/解析失败时不产出"全部未使用"的伪判定，否则污染技能统计。
+    if "judgments" not in parsed:
+        return []
     raw_judgments = parsed.get("judgments") if isinstance(parsed.get("judgments"), list) else []
     by_name = {str(item.get("name") or ""): item for item in raw_judgments if isinstance(item, dict)}
     judgments: list[dict[str, Any]] = []

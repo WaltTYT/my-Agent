@@ -839,6 +839,9 @@ class Agent:
             return False
 
     async def _confirm_background_online_skill_write(self, summary: str) -> bool:
+        return self._background_skill_write_allowed()
+
+    def _background_skill_write_allowed(self) -> bool:
         return self.permission_mode in {"bypassPermissions", "acceptEdits"}
 
     def _online_evolution_enabled(self) -> bool:
@@ -907,6 +910,9 @@ class Agent:
     async def _run_online_skill_evolution(self, window: dict[str, Any], *, interactive_confirm: bool = False) -> None:
         if not self._online_evolution_enabled() or self.permission_mode == "plan":
             return
+        # 后台路径写技能必然被 confirm 拒绝时直接短路，别再白跑提取和维护两次模型调用。
+        if not interactive_confirm and not self._background_skill_write_allowed():
+            return
         messages = list(window.get("messages") or [])
         if not messages:
             return
@@ -942,6 +948,8 @@ class Agent:
             return
         hits = list(hits or [])
         if not hits or not assistant_text.strip():
+            return
+        if self._side_query_blocked_by_budget():
             return
         side_query = self._build_side_query(max_tokens=700)
         try:
