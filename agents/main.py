@@ -40,7 +40,11 @@ from .skills import (
     record_feedback,
     skill_stats,
 )
-from .online_skill_eval import format_online_skill_eval_async
+from .online_skill_eval import (
+    evaluate_online_skill_evolution_async,
+    format_online_skill_eval,
+    format_online_skill_eval_async,
+)
 from .paths import plans_dir
 
 if TYPE_CHECKING:
@@ -494,9 +498,17 @@ async def run_repl(agent: Agent) -> None:
         if inp == "/skill-stats":
             print_info(skill_stats())
             continue
-        if inp == "/skill-eval":
-            side_query = agent._build_side_query(max_tokens=2400)
-            print_info(await format_online_skill_eval_async(side_query=side_query))
+        if inp == "/skill-eval" or inp.startswith("/skill-eval "):
+            arg = inp[len("/skill-eval") :].strip()
+            if not arg:
+                print_info(await format_online_skill_eval_async())
+                continue
+            if arg == "run":
+                side_query = agent._build_side_query(max_tokens=2400)
+                report = await evaluate_online_skill_evolution_async(side_query=side_query)
+                print_info(format_online_skill_eval(report))
+                continue
+            print_error("用法：/skill-eval 查看最近报告；/skill-eval run 重新评测（会调用模型）")
             continue
         if inp.startswith("/extract_now"):
             hint = inp[len("/extract_now") :].strip()
@@ -644,7 +656,8 @@ REPL 命令：
   /forget             删除记忆：/forget <文件名或关键词>
   /skills             列出可用技能
   /skill-stats        显示技能使用与进化统计
-  /skill-eval         评估在线技能进化质量
+  /skill-eval         查看最近一次在线技能评测报告（不调用模型）
+  /skill-eval run     重新运行评测（会调用模型；候选 ≤4，每类样本 ≤3，并发 ≤3）
   /extract_now        提取当前待处理的在线技能窗口：/extract_now [提示]
   /skill-feedback     记录反馈：/skill-feedback <技能> <评分> [备注]
   /skill-evolve       进化技能：/skill-evolve <技能> <可沉淀的经验>

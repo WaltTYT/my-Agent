@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import re
@@ -24,6 +25,8 @@ DEFAULT_MIN_RELEVANCE_RATE = 0.35
 DEFAULT_MIN_RULE_PASS_RATE = 0.8
 DEFAULT_DEV_SPLIT_RATIO = 0.75
 DEFAULT_MIN_SCORE_DELTA = 0.01
+DEFAULT_EVAL_MAX_SAMPLES_PER_SPLIT = 3
+DEFAULT_EVAL_MAX_CONCURRENCY = 3
 ONLINE_EVAL_DIR = "online-eval"
 SideQuery = Callable[[str, str], Awaitable[str]]
 
@@ -912,15 +915,16 @@ async def _evaluate_generated_variant_async(
     samples: list[dict[str, Any]],
     rules: list[dict[str, Any]],
     side_query: SideQuery | None,
+    concurrency: int = DEFAULT_EVAL_MAX_CONCURRENCY,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
-    outputs: list[dict[str, Any]] = []
-    outcomes: list[dict[str, Any]] = []
     snapshot = variant.get("snapshot") if isinstance(variant.get("snapshot"), dict) else {}
     skill_name = str(snapshot.get("name") or variant.get("label") or "")
-    for sample in samples:
-        response = await _generate_variant_response_async(variant=variant, sample=sample, side_query=side_query)
-        outputs.append(
-            {
+    sem = asyncio.Semaphore(max(1, int(concurrency)))
+
+    async def evaluate_sample(sample: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        async with sem:
+            response = await _generate_variant_response_async(variant=variant, sample=sample, side_query=side_query)
+            output = {
                 "sample_id": sample.get("sample_id", ""),
                 "variant_id": variant.get("variant_id", ""),
                 "split": sample.get("split", ""),
@@ -929,21 +933,29 @@ async def _evaluate_generated_variant_async(
                 "response_source": "candidate_generated",
                 "response_text": response,
             }
-        )
-        for rule in rules:
-            outcome = await _evaluate_rule_async(
-                rule,
-                response,
-                sample=sample,
-                skill_name=skill_name,
-                side_query=side_query,
-            )
-            outcome["sample_id"] = sample.get("sample_id", "")
-            outcome["split"] = sample.get("split", "")
-            outcome["kind"] = rule.get("kind", "programmatic")
-            outcome["variant_id"] = variant.get("variant_id", "")
-            outcome["score"] = (2.0 if outcome.get("hard") else 1.0) if outcome.get("passed") else 0.0
-            outcomes.append(outcome)
+            sample_outcomes: list[dict[str, Any]] = []
+            for rule in rules:
+                outcome = await _evaluate_rule_async(
+                    rule,
+                    response,
+                    sample=sample,
+                    skill_name=skill_name,
+                    side_query=side_query,
+                )
+                outcome["sample_id"] = sample.get("sample_id", "")
+                outcome["split"] = sample.get("split", "")
+                outcome["kind"] = rule.get("kind", "programmatic")
+                outcome["variant_id"] = variant.get("variant_id", "")
+                outcome["score"] = (2.0 if outcome.get("hard") else 1.0) if outcome.get("passed") else 0.0
+                sample_outcomes.append(outcome)
+        return output, sample_outcomes
+
+    results = await asyncio.gather(*(evaluate_sample(sample) for sample in samples))
+    outputs: list[dict[str, Any]] = []
+    outcomes: list[dict[str, Any]] = []
+    for output, sample_outcomes in results:
+        outputs.append(output)
+        outcomes.extend(sample_outcomes)
     summary = _summarize_outcomes_from_rows(rules=rules, samples=samples, outcomes=outcomes)
     return outputs, outcomes, summary
 
@@ -973,6 +985,8 @@ async def _build_candidate_eval_bundle_async(
     rules: list[dict[str, Any]],
     rule_summary: dict[str, Any],
     side_query: SideQuery | None,
+    max_samples_per_split: int = DEFAULT_EVAL_MAX_SAMPLES_PER_SPLIT,
+    concurrency: int = DEFAULT_EVAL_MAX_CONCURRENCY,
 ) -> dict[str, Any]:
     if side_query is None or not replay_pool:
         return {}
@@ -999,8 +1013,10 @@ async def _build_candidate_eval_bundle_async(
             continue
         seen.add(key)
         deduped.append(variant)
-    dev_samples = [sample for sample in replay_pool if sample.get("split") == "mutate_dev"] or list(replay_pool)
-    test_samples = [sample for sample in replay_pool if sample.get("split") == "promotion_test"]
+    # 每个拆分只取最近的 N 个样本，避免一次评测把回放池全部跑一遍。
+    limit = max(1, int(max_samples_per_split))
+    dev_samples = ([sample for sample in replay_pool if sample.get("split") == "mutate_dev"] or list(replay_pool))[:limit]
+    test_samples = [sample for sample in replay_pool if sample.get("split") == "promotion_test"][:limit]
     outputs: list[dict[str, Any]] = []
     judgments: list[dict[str, Any]] = []
     scored: list[tuple[dict[str, Any], dict[str, Any], dict[str, Any]]] = []
@@ -1010,6 +1026,7 @@ async def _build_candidate_eval_bundle_async(
             samples=dev_samples,
             rules=rules,
             side_query=side_query,
+            concurrency=concurrency,
         )
         outputs.extend(variant_outputs)
         judgments.extend(variant_outcomes)
@@ -1031,6 +1048,7 @@ async def _build_candidate_eval_bundle_async(
             samples=test_samples,
             rules=rules,
             side_query=side_query,
+            concurrency=concurrency,
         )
         outputs.extend(test_outputs)
         judgments.extend(test_outcomes)
@@ -1808,13 +1826,18 @@ def format_online_skill_eval(report: dict[str, Any] | None = None) -> str:
     return "\n".join(lines)
 
 
+def load_online_skill_eval_report() -> dict[str, Any] | None:
+    report = _read_json(get_evolution_dir() / "online_eval_report.json", {})
+    return report if isinstance(report, dict) and report else None
+
+
 async def format_online_skill_eval_async(
     *,
-    side_query: SideQuery | None = None,
     report: dict[str, Any] | None = None,
 ) -> str:
-    if report is None:
-        report = await evaluate_online_skill_evolution_async(side_query=side_query)
+    report = report or load_online_skill_eval_report()
+    if not report:
+        return "尚无在线技能评测报告；运行 /skill-eval run 生成（会调用模型）。"
     return format_online_skill_eval(report)
 
 
