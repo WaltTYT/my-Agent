@@ -94,6 +94,19 @@ def _load_env_file() -> None:
         load_dotenv(override=False)
 
 
+def _available_models(current: str) -> list[str]:
+    """读取 MODELS 环境变量作为候选模型；未配置时回落到内置列表。"""
+    raw = _clean_env(os.environ.get("MODELS"))
+    models = [m.strip() for m in raw.split(",") if m.strip()] if raw else [
+        "glm-4.7-flash",
+        "glm-4.6v-flash",
+        "glm-4-flash",
+    ]
+    if current not in models:
+        models.insert(0, current)
+    return models
+
+
 def _is_anthropic_compatible_base_url(base_url: str | None) -> bool:
     if not base_url:
         return False
@@ -307,6 +320,17 @@ async def run_repl(agent: Agent) -> None:
         # REPL commands
         if inp == "/clear":
             agent.clear_history()
+            continue
+        if inp == "/model" or inp.startswith("/model "):
+            requested = inp[len("/model"):].strip()
+            if not requested:
+                lines = [f"当前模型：{agent.model}", "可选模型："]
+                lines.extend(f"  - {model}" for model in _available_models(agent.model))
+                lines.append("切换模型：/model <名称>")
+                print_info("\n".join(lines))
+                continue
+            agent.set_model(requested)
+            print_info(f"已切换模型：{agent.model}")
             continue
         if inp == "/plans" or inp.startswith("/plans "):
             _show_plans(inp[len("/plans"):].strip())
@@ -546,6 +570,7 @@ def main() -> None:
 
 REPL 命令：
   /clear              清空对话历史
+  /model              查看当前模型和候选列表；/model <名称> 切换模型
   /plan               进入计划模式（只读）
   /plan-exit          退出计划模式
   /plans              查看所有任务计划；/plans <文件名> 查看具体计划

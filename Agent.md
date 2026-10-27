@@ -6,7 +6,7 @@
 
 - **项目名称**：Lily（原 MyAgent / Bear Code 的二次开发分支，界面与提示词已统一为 Lily）
 - **定位**：可进化的智能体 CLI（终端编码代理），基于 Anthropic / OpenAI 兼容接口
-- **当前模型**：智谱 GLM-4（OpenAI 兼容端点，配置见 `.env`）
+- **当前模型**：智谱 GLM 系列（OpenAI 兼容端点，`MODEL` 与 `MODELS` 见 `.env`，会话中可用 `/model` 切换）
 
 ### 技术栈
 

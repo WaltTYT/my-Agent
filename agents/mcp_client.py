@@ -266,8 +266,9 @@ class McpManager:
         if not configs:
             return
 
-        # 每个 Server 的初始化和工具发现最多等待 15 秒，避免坏配置长期卡住启动。
-        timeout = 15.0
+        # 每个 Server 的初始化和工具发现最多等待 60 秒。首次运行 npx 需要下载
+        # 依赖包，15 秒经常不够，会表现为一条空的 TimeoutError。
+        timeout = 60.0
 
         for name, cfg in configs.items():
             # 根据配置创建一个独立连接对象。
@@ -288,7 +289,11 @@ class McpManager:
                 print_info(f"MCP 已连接：{name}（{len(server_tools)} 个工具）")
             except Exception as e:
                 # 单个 Server 失败不影响其他 Server。失败连接需要关闭以清理子进程。
-                print_error(f"MCP 连接失败：{name}：{e}")
+                if isinstance(e, asyncio.TimeoutError):
+                    reason = f"连接超时（超过 {timeout:g} 秒，首次运行 npx 可能正在下载依赖，可重试）"
+                else:
+                    reason = str(e) or type(e).__name__
+                print_error(f"MCP 连接失败：{name}：{reason}")
                 await conn.aclose()
 
     def get_tool_definitions(self) -> list[dict]:

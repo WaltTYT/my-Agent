@@ -31,7 +31,9 @@ pip install anthropic openai python-dotenv rich tqdm
 # 智谱 GLM（OpenAI 兼容接口）
 OPENAI_API_KEY=你的密钥
 OPENAI_BASE_URL=https://open.bigmodel.cn/api/paas/v4
-MODEL=glm-4
+MODEL=glm-4-flash
+# 会话中可用 /model 查看和切换；候选列表由 MODELS 指定（逗号分隔）
+MODELS=glm-4.7-flash,glm-4.6v-flash,glm-4-flash
 
 # 也支持 Anthropic 兼容端点（如 DeepSeek）：
 # ANTHROPIC_API_KEY=...
@@ -63,6 +65,7 @@ MODEL=glm-4
 | `/skill-create <名称>` | 创建技能 |
 | `/skill-stats` | 查看技能进化统计 |
 | `/memory` | 列出长期记忆 |
+| `/model` | 查看当前模型和候选列表；`/model <名称>` 切换模型 |
 | `/compact` | 压缩当前上下文 |
 | `exit` | 退出会话 |
 

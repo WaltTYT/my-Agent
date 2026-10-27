@@ -104,7 +104,12 @@ MODEL_CONTEXT = {
     "claude-opus-4-20250514": 200000,
     "gpt-4o": 128000,
     "gpt-4o-mini": 128000,
-    "deepseek-chat":200000
+    "deepseek-chat":200000,
+    "glm-4.7-flash": 200000,
+    "glm-4.6v-flash": 128000,
+    "glm-4-flash": 128000,
+    "glm-4-plus": 128000,
+    "glm-4-air": 128000,
 }
 
 def _get_context_windows(model:str)->int:
@@ -286,6 +291,12 @@ class Agent:
     def _model_supports_adaptive_thinking(self) -> bool:
         m = self.model.lower()
         return "opus-4-6" in m or "sonnet-4-6" in m
+
+    def set_model(self, model: str) -> None:
+        """切换模型，同时刷新上下文窗口和思考模式。"""
+        self.model = model.strip().lower()
+        self.effective_window = _get_context_windows(self.model) - 20000
+        self._thinking_mode = self._resolve_thinking_mode()
 
     #生成一个用于保存 AI 计划（Plan）的 Markdown 文件的绝对路径，文件名取自任务描述。
     def _generate_plan_file_path(self, task: str) -> str:
@@ -931,7 +942,7 @@ class Agent:
         budget_info = f" / 预算 ${self.max_cost_usd}" if self.max_cost_usd else ""
         turn_info = f" | 轮数：{self.current_turns}/{self.max_turns}" if self.max_turns else ""
         print_info(
-            f"Token：输入 {self.total_input_tokens} / 输出 {self.total_output_tokens}\n  预估费用：${total:.4f}{budget_info}{turn_info}")
+            f"模型：{self.model}\n  Token：输入 {self.total_input_tokens} / 输出 {self.total_output_tokens}\n  预估费用：${total:.4f}{budget_info}{turn_info}")
 
     #获取当前的花费，
     def _get_current_cost_usd(self) -> float:
@@ -1688,7 +1699,7 @@ class Agent:
             # 没有工具调用，说明模型已经给出最终回复，本轮对话结束。
             if not tool_uses:
                 if not self.is_sub_agent:
-                    print_cost(self.total_input_tokens, self.total_output_tokens)
+                    print_cost(self.total_input_tokens, self.total_output_tokens, self.model)
                 break
 
             # 有工具调用时，进入下一轮工具执行。这里同时检查 turn/budget 限制。
@@ -1973,7 +1984,7 @@ class Agent:
                         print_info("检测到未完成的下载，正在继续…")
                     continue
                 if not self.is_sub_agent:
-                    print_cost(self.total_input_tokens, self.total_output_tokens)
+                    print_cost(self.total_input_tokens, self.total_output_tokens, self.model)
                 break
 
             self.current_turns += 1

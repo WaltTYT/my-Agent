@@ -57,6 +57,7 @@ def print_welcome() -> None:
     commands.add_row("/remember", "强制保存一条长期记忆")
     commands.add_row("/forget", "按名称或文件名删除记忆")
     commands.add_row("/compact", "压缩当前上下文")
+    commands.add_row("/model", "查看或切换模型")
     commands.add_row("exit", "退出会话")
 
     body = Table.grid()
@@ -175,13 +176,15 @@ def print_divider() -> None:
     console.rule("[dim]本轮完成[/dim]", style="dim")
 
 
-def print_cost(input_tokens: int, output_tokens: int) -> None:
+def print_cost(input_tokens: int, output_tokens: int, model: str | None = None) -> None:
     cost_in = (input_tokens / 1_000_000) * 3
     cost_out = (output_tokens / 1_000_000) * 15
     total = cost_in + cost_out
     table = Table.grid(padding=(0, 2))
     table.add_column(style="cyan")
     table.add_column(style="white")
+    if model:
+        table.add_row("模型", model)
     table.add_row("输入", f"{input_tokens} tokens")
     table.add_row("输出", f"{output_tokens} tokens")
     table.add_row("预估", f"${total:.4f}")
