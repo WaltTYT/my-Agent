@@ -474,17 +474,44 @@ class Agent:
     def is_processing(self)->bool:
         return self._current_task is not None and not self._current_task.done()
 
+    #side_query 是后台辅助调用，费用必须同样累计，否则 /cost 长期偏低
+    def _record_side_query_usage(self, input_tokens: Any, output_tokens: Any) -> None:
+        try:
+            self.total_input_tokens += max(0, int(input_tokens or 0))
+            self.total_output_tokens += max(0, int(output_tokens or 0))
+        except (TypeError, ValueError):
+            return
+
+    def _side_query_budget_enabled(self) -> bool:
+        raw = os.environ.get("LILY_SIDE_QUERY_BUDGET", "1").strip().lower()
+        return raw not in {"0", "false", "no", "off"}
+
+    def _side_query_blocked_by_budget(self) -> bool:
+        if not self._side_query_budget_enabled():
+            return False
+        budget = self._check_budget()
+        if budget["exceeded"]:
+            logging.warning("side_query skipped: %s", budget["reason"])
+            return True
+        return False
+
     #大模型调用的工厂方法,构建一个用于记忆召回（memory recall）的 sideQuery 可调用对象，兼容anthropic, openai。
     def _build_side_query(self, *, max_tokens: int = 256):
         if self._anthropic_client:
             client = self._anthropic_client
             model = self.model
             async def _sq(system:str, user_message:str)->str:
+                if self._side_query_blocked_by_budget():
+                    return ""
 
                 resp = await client.messages.create(
                     model=model, max_tokens=max(1, int(max_tokens)), system=system,
                 messages=[{"role": "user", "content": user_message}],
                 )
+                usage = getattr(resp, "usage", None)
+                if usage is not None:
+                    self._record_side_query_usage(
+                        getattr(usage, "input_tokens", 0), getattr(usage, "output_tokens", 0))
                 text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
                 if not text.strip():
                     block_types = [str(getattr(b, "type", "")) for b in getattr(resp, "content", [])]
@@ -500,6 +527,8 @@ class Agent:
             client = self._openai_client
             model = self.model
             async def _sq_openai(system:str, user_message:str)->str:
+                if self._side_query_blocked_by_budget():
+                    return ""
                 resp = await client.chat.completions.create(
                     model=model,
                     max_tokens=max(1, int(max_tokens)),
@@ -509,6 +538,10 @@ class Agent:
                     ],
 
                 )
+                usage = getattr(resp, "usage", None)
+                if usage is not None:
+                    self._record_side_query_usage(
+                        getattr(usage, "prompt_tokens", 0), getattr(usage, "completion_tokens", 0))
                 if not resp.choices:
                     logging.warning("side_query returned no OpenAI-compatible choices: model=%s", model)
                     return ""
