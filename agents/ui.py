@@ -27,6 +27,19 @@ def _safe_stdout_write(text: object) -> None:
     sys.stdout.flush()
 
 
+# 流式助手文本走裸 stdout 写入，Rich 不知道光标停在行中间；
+# 绘制任何面板/分隔线前必须先调用 _ensure_fresh_line()，否则边框会错位折行。
+_raw_line_open = False
+
+
+def _ensure_fresh_line() -> None:
+    global _raw_line_open
+    if _raw_line_open:
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+        _raw_line_open = False
+
+
 COOKIE_BEAR = r"""
         _     _
       _( )___( )_
@@ -84,10 +97,14 @@ def print_user_prompt() -> None:
 
 
 def print_assistant_text(text: str) -> None:
+    global _raw_line_open
+    if text:
+        _raw_line_open = not text.endswith("\n")
     _safe_stdout_write(text)
 
 
 def print_tool_call(name: str, inp: dict) -> None:
+    _ensure_fresh_line()
     icon = _get_tool_icon(name)
     summary = _get_tool_summary(name, inp)
     table = Table.grid(padding=(0, 1))
@@ -106,6 +123,7 @@ def print_tool_call(name: str, inp: dict) -> None:
 
 
 def print_tool_result(name: str, result: str) -> None:
+    _ensure_fresh_line()
     result = _safe_text(result)
     if (name in ("edit_file", "write_file")) and not result.startswith("Error"):
         _print_file_change_result(name, result)
@@ -153,6 +171,7 @@ def _print_file_change_result(_name: str, result: str) -> None:
 
 
 def print_error(msg: str) -> None:
+    _ensure_fresh_line()
     console.print(Panel(
         _safe_text(msg),
         title="[bold red]错误[/bold red]",
@@ -163,6 +182,7 @@ def print_error(msg: str) -> None:
 
 
 def print_confirmation(command: str) -> None:
+    _ensure_fresh_line()
     console.print(Panel(
         _safe_text(command),
         title="[bold yellow]危险命令[/bold yellow]",
@@ -173,6 +193,7 @@ def print_confirmation(command: str) -> None:
 
 
 def print_divider() -> None:
+    _ensure_fresh_line()
     console.rule("[dim]本轮完成[/dim]", style="dim")
 
 
@@ -189,15 +210,18 @@ def print_cost(input_tokens: int, output_tokens: int, model: str | None = None) 
     table.add_row("输出", f"{output_tokens} tokens")
     table.add_row("预估", f"${total:.4f}")
     # 流式助手输出可能没有以换行结束，费用面板必须从下一行开始绘制。
+    _ensure_fresh_line()
     console.print()
     console.print(Panel(table, title="费用", border_style="cyan", box=box.ROUNDED))
 
 
 def print_retry(attempt: int, max_retries: int, reason: str) -> None:
+    _ensure_fresh_line()
     console.print(_safe_text(f"\n  [yellow]↻ 重试 {attempt}/{max_retries}：{reason}[/yellow]"))
 
 
 def print_info(msg: str) -> None:
+    _ensure_fresh_line()
     console.print(Panel(
         _safe_text(msg),
         title="[bold cyan]信息[/bold cyan]",
@@ -208,6 +232,7 @@ def print_info(msg: str) -> None:
 
 
 def print_warning(msg: str) -> None:
+    _ensure_fresh_line()
     console.print(Panel(
         _safe_text(msg),
         title="[bold yellow]提示[/bold yellow]",
@@ -218,6 +243,7 @@ def print_warning(msg: str) -> None:
 
 
 def print_goodbye() -> None:
+    _ensure_fresh_line()
     console.print(Panel(
         Text("再见，下次 Lily 再会。", style="bold #f6c177"),
         border_style="#d19a66",
@@ -239,7 +265,7 @@ _spinner_stop = threading.Event()
 
 
 def start_spinner(label: str = "思考中") -> None:
-    global _spinner_thread
+    global _spinner_thread, _raw_line_open
     if _spinner_thread is not None:
         return
     _spinner_stop.clear()
@@ -254,16 +280,18 @@ def start_spinner(label: str = "思考中") -> None:
 
     _spinner_thread = threading.Thread(target=_run, daemon=True)
     _spinner_thread.start()
+    _raw_line_open = True
 
 
 def stop_spinner(*, newline: bool = False) -> None:
-    global _spinner_thread
+    global _spinner_thread, _raw_line_open
     if _spinner_thread is None:
         return
     _spinner_stop.set()
     _spinner_thread.join(timeout=1)
     _spinner_thread = None
     _safe_stdout_write("\r\033[K")
+    _raw_line_open = False
     if newline:
         _safe_stdout_write("\n")
 
@@ -272,6 +300,7 @@ def stop_spinner(*, newline: bool = False) -> None:
 
 
 def print_plan_for_approval(plan_content: str) -> None:
+    _ensure_fresh_line()
     lines = plan_content.split("\n")
     max_lines = 60
     preview = "\n".join(lines[:max_lines])
@@ -287,6 +316,7 @@ def print_plan_for_approval(plan_content: str) -> None:
 
 
 def print_plan_approval_options() -> None:
+    _ensure_fresh_line()
     table = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
     table.add_column("choice", style="bold yellow", no_wrap=True)
     table.add_column("action", style="white")
@@ -302,6 +332,7 @@ def print_plan_approval_options() -> None:
 
 
 def print_sub_agent_start(agent_type: str, description: str) -> None:
+    _ensure_fresh_line()
     console.print(Panel(
         _safe_text(description),
         title=f"[bold magenta]子代理启动：{agent_type}[/bold magenta]",
@@ -312,6 +343,7 @@ def print_sub_agent_start(agent_type: str, description: str) -> None:
 
 
 def print_sub_agent_end(agent_type: str, _description: str) -> None:
+    _ensure_fresh_line()
     console.print(Panel(
         "已完成",
         title=f"[bold magenta]子代理结束：{agent_type}[/bold magenta]",
@@ -322,6 +354,7 @@ def print_sub_agent_end(agent_type: str, _description: str) -> None:
 
 
 def print_memory_entries(memories: list[object]) -> None:
+    _ensure_fresh_line()
     table = Table(box=box.ROUNDED, header_style="bold cyan", border_style="cyan")
     table.add_column("类型", style="bold #f6c177", no_wrap=True)
     table.add_column("名称", style="white")
@@ -336,6 +369,7 @@ def print_memory_entries(memories: list[object]) -> None:
 
 
 def print_skill_entries(skills: list[object]) -> None:
+    _ensure_fresh_line()
     table = Table(box=box.ROUNDED, header_style="bold cyan", border_style="cyan")
     table.add_column("技能", style="bold #f6c177", no_wrap=True)
     table.add_column("来源", style="cyan", no_wrap=True)
