@@ -4,7 +4,7 @@ import json
 import math
 import re
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -210,21 +210,6 @@ _STOP_TOKENS = {
 }
 
 
-def _tokens(text: str) -> set[str]:
-    raw = str(text or "").lower().replace("_", " ").replace("-", " ")
-    found = {m.group(0) for m in _TOKEN_RE.finditer(raw)}
-    expanded = set(found)
-    for token in found:
-        if len(token) > 3 and token.endswith("s"):
-            expanded.add(token[:-1])
-    found = expanded
-    cjk = re.findall(r"[\u4e00-\u9fff]+", raw)
-    for chunk in cjk:
-        if len(chunk) >= 2:
-            found.update(chunk[i : i + 2] for i in range(len(chunk) - 1))
-    return {x for x in found if x.strip() and x not in _STOP_TOKENS}
-
-
 def _token_list(text: str) -> list[str]:
     raw = str(text or "").lower().replace("_", " ").replace("-", " ")
     tokens = [m.group(0) for m in _TOKEN_RE.finditer(raw)]
@@ -239,17 +224,6 @@ def _token_list(text: str) -> list[str]:
         if len(token) > 3 and token.endswith("s"):
             expanded.append(token[:-1])
     return expanded
-
-
-def _skill_search_text(skill: SkillDefinition) -> str:
-    return "\n".join(
-        [
-            skill.name,
-            skill.description,
-            skill.when_to_use or "",
-            skill.prompt_template[:4000],
-        ]
-    )
 
 
 def retrieve_relevant_skills(

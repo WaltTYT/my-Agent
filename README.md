@@ -20,7 +20,7 @@
 ```powershell
 conda create -n my-agent python=3.11
 conda activate my-agent
-pip install anthropic openai python-dotenv rich tqdm
+pip install anthropic openai python-dotenv rich
 ```
 
 ### 2. 配置 API

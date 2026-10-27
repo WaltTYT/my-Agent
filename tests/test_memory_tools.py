@@ -106,6 +106,18 @@ def test_index_self_heals_after_manual_file_removal():
     assert memory.load_memory_index().count(filename) == 0
 
 
+def test_write_file_into_memory_dir_refreshes_index():
+    # write_file 直接写 memory 目录时也要刷新 MEMORY.md，且必须复用 memory.py 的解析规则。
+    d = memory.get_memory_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    target = d / "manual-note.md"
+    content = "---\nname: 手工记忆\ndescription: 手写\ntype: user\n---\n\n正文"
+    result = run("write_file", {"file_path": str(target), "content": content})
+
+    assert result.startswith("Successfully wrote to")
+    assert any("手工记忆" in line and "manual-note.md" in line for line in index_lines())
+
+
 def test_memory_tools_are_denied_in_plan_mode():
     inp = {"name": "x", "description": "y", "type": "user", "content": "z"}
     assert tools.check_permission("save_memory", inp, mode="plan")["action"] == "deny"

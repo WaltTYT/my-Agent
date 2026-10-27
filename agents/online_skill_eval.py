@@ -628,21 +628,6 @@ def _freeze_replay_pool(*, skill_name: str, samples: list[dict[str, Any]]) -> li
     return frozen
 
 
-def _summarize_rule_outcomes(rules: list[dict[str, Any]], samples: list[dict[str, Any]]) -> dict[str, Any]:
-    outcomes: list[dict[str, Any]] = []
-    for sample in samples:
-        response = str(sample.get("latest_assistant") or "")
-        for rule in rules:
-            outcome = _evaluate_rule(rule, response)
-            outcome["sample_id"] = sample.get("sample_id", "")
-            outcome["split"] = sample.get("split", "")
-            outcome["kind"] = rule.get("kind", "programmatic")
-            outcome["score"] = (2.0 if outcome.get("hard") else 1.0) if outcome.get("passed") else 0.0
-            outcomes.append(outcome)
-
-    return _summarize_outcomes_from_rows(rules=rules, samples=samples, outcomes=outcomes)
-
-
 async def _summarize_rule_outcomes_async(
     rules: list[dict[str, Any]],
     samples: list[dict[str, Any]],

@@ -16,7 +16,6 @@
 | anthropic | 2.3.0 | Anthropic 协议模型调用 |
 | openai | 3.37.0 | OpenAI 兼容协议模型调用（GLM 走此通道） |
 | rich | 15.0.0 | 终端 UI 渲染 |
-| tqdm | 4.70.1 | 进度显示 |
 | python-dotenv | 1.2.4 | `.env` 配置加载 |
 | pytest | 9.1.1 | 测试框架 |
 

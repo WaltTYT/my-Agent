@@ -6,11 +6,10 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
-from tqdm.utils import IS_WIN
-
-from agents.memory import get_memory_dir
+from agents.memory import get_memory_dir, _update_memory_index
 from agents.paths import plans_dir
 
 ToolDef = dict  # Anthropic tool schema dict
@@ -33,22 +32,6 @@ PLAN_MODE_TOOLS = READ_TOOLS | {
     "agent", "tool_search",
     "search_web", "get_web_content",
 }
-
-
-
-
-
-
-
-def get_active_tool_definitions(all_tools: list[ToolDef] | None = None) -> list[ToolDef]:
-    """过滤并返回当前可用的工具定义列表，主要用于 API 调用前剔除尚未激活的“延迟工具”（deferred tools），并删除无关的元数据字段。"""
-    tools = all_tools if all_tools is not None else tool_definitions
-    return [
-        {k: v for k, v in t.items() if k != "deferred"}
-        for t in tools
-        if not t.get("deferred") or t["name"] in _activated_tools
-    ]
-
 
 
 # read_file 默认只返回这么多行。整份读大文件会撞上 _persist_large_result 的 30 KB
@@ -440,7 +423,8 @@ def _write_file(inp:dict) -> str:
         path = _resolve_tool_path(inp["file_path"], must_exist=False)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(inp["content"], encoding="utf-8")
-        _auto_update_memory_index(str(path))
+        if str(path).startswith(str(get_memory_dir())) and path.suffix == ".md" and path.name != "MEMORY.md":
+            _update_memory_index()
         lines = inp["content"].split("\n")
         line_count = len(lines)
         preview = "\n".join(f"{i + 1:4d} | {l}" for i, l in enumerate(lines[:30]))
@@ -448,31 +432,6 @@ def _write_file(inp:dict) -> str:
         return f"Successfully wrote to {inp['file_path']} ({line_count} lines)\n\n{preview}{trunc}"
     except Exception as e:
         return f"Error writing file: {type(e).__name__}: {e} (目标: {inp['file_path']})"
-
-def _auto_update_memory_index(file_path:str) -> None:
-    try:
-        mem_dir = str(get_memory_dir())
-        if file_path.startswith(mem_dir) and file_path.endswith(".md") and not file_path.endswith("MEMORY.md"):
-            mem_path = Path(mem_dir)
-            lines = ["# Memory Index", ""]
-            for f in sorted(mem_path.glob("*.md")):
-                if f.name == "MEMORY.md":
-                    continue
-                try:
-                    raw = f.read_text(encoding="utf-8")
-                    name_match = re.search(r"^name:\s*(.+)$", raw, re.MULTILINE)
-                    type_match = re.search(r"^type:\s*(.+)$", raw, re.MULTILINE)
-                    desc_match = re.search(r"^description:\s*(.+)$", raw, re.MULTILINE)
-                    if name_match and type_match:
-                        n = name_match.group(1).strip()
-                        t = type_match.group(1).strip()
-                        d = desc_match.group(1).strip()
-                        lines.append(f"- **[{n}]({f.name})** ({t}) — {d}")
-                except Exception:
-                    pass
-            (mem_path / "MEMORY.md").write_text("\n".join(lines), encoding="utf-8")
-    except Exception:
-        pass
 
 #-------------------------编辑助手，符号规范化+差异化------------------------
 
@@ -563,7 +522,7 @@ def _grep_search(inp: dict) -> str:
     path = str(_resolve_tool_path(inp.get("path") or "."))
     include = inp.get("include")
 
-    if not IS_WIN:
+    if sys.platform != "win32":
         try:
             args = ["grep", "--line-number", "--color=never", "-r"]
             if include:
