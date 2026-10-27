@@ -110,6 +110,9 @@ class _StubAgent:
         self.permission_mode = "default"
         self.chat_requests = []
         self.plan_drafts = []
+        self.fail_draft = False
+        self.fail_chat = False
+        self.plan_file = None
 
     def set_confirm_fn(self, fn):
         pass
@@ -122,13 +125,30 @@ class _StubAgent:
 
     def toggle_plan_mode(self, task=None):
         self.permission_mode = "default" if self.permission_mode == "plan" else "plan"
+        self.plan_file = f"memory/plans/{task}.md" if task and self.permission_mode == "plan" else None
         return self.permission_mode
 
+    def plan_state_snapshot(self):
+        return {
+            "permission_mode": self.permission_mode,
+            "pre_plan_mode": None,
+            "plan_file_path": self.plan_file,
+            "system_prompt": "",
+        }
+
+    def restore_plan_state(self, snapshot):
+        self.permission_mode = snapshot["permission_mode"]
+        self.plan_file = snapshot["plan_file_path"]
+
     def create_plan_draft(self, task):
+        if self.fail_draft:
+            raise OSError("plans dir unavailable")
         self.plan_drafts.append(task)
         return "memory/plans/添加联网功能.md"
 
     async def chat(self, prompt):
+        if self.fail_chat:
+            raise RuntimeError("network down")
         self.chat_requests.append(prompt)
 
     async def drain_background_skill_tasks(self):
@@ -136,12 +156,12 @@ class _StubAgent:
         return None
 
 
-def _drive_repl(monkeypatch, lines: list[str]) -> _StubAgent:
+def _drive_repl(monkeypatch, lines: list[str], agent: _StubAgent | None = None) -> _StubAgent:
     """把 lines 喂给真实 REPL 分发，直到 exit 结束。"""
     feed = iter(lines + ["exit"])
     monkeypatch.setattr("builtins.input", lambda *a, **k: next(feed))
     monkeypatch.setattr(cli, "print_user_prompt", lambda: None)
-    agent = _StubAgent()
+    agent = agent or _StubAgent()
     asyncio.run(cli.run_repl(agent))
     return agent
 
@@ -228,6 +248,45 @@ def test_plans_create_requires_a_task(monkeypatch, capsys):
     _drive_repl(monkeypatch, ["/plans-create"])
 
     assert "用法：/plans-create <任务>" in capsys.readouterr().out
+
+
+def test_plans_create_rolls_back_when_draft_fails(monkeypatch, capsys):
+    agent = _StubAgent()
+    agent.fail_draft = True
+
+    _drive_repl(monkeypatch, ["/plans-create 添加联网功能"], agent=agent)
+
+    assert "创建计划失败" in capsys.readouterr().out
+    # 失败必须整体回滚到命令前的状态，不能把用户留在计划模式里。
+    assert agent.permission_mode == "default"
+    assert agent.plan_file is None
+    assert agent.chat_requests == []
+
+
+def test_plans_create_failure_restores_previous_plan_file(monkeypatch, capsys):
+    agent = _StubAgent()
+    agent.permission_mode = "plan"
+    agent.plan_file = "memory/plans/旧计划.md"
+    agent.fail_draft = True
+
+    _drive_repl(monkeypatch, ["/plans-create 新任务"], agent=agent)
+
+    # 原本就在计划模式时，回滚要连同原计划文件一起找回，而不是掉回 default。
+    assert agent.permission_mode == "plan"
+    assert agent.plan_file == "memory/plans/旧计划.md"
+
+
+def test_plans_create_chat_failure_keeps_repl_alive(monkeypatch, capsys):
+    agent = _StubAgent()
+    agent.fail_chat = True
+
+    _drive_repl(monkeypatch, ["/plans-create 添加联网功能", "/plan-exit"], agent=agent)
+
+    out = capsys.readouterr().out
+    assert "network down" in out
+    # 下一条命令能继续执行，说明异常没有炸穿 REPL 循环。
+    assert agent.permission_mode == "default"
+    assert agent.plan_drafts == ["添加联网功能"]
 
 
 def test_plan_with_task_remains_a_compatible_alias(monkeypatch):

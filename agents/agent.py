@@ -315,7 +315,8 @@ class Agent:
             "## 验证方式\n待制定\n\n"
             "## 风险与假设\n待补充\n"
         )
-        while True:
+        # 命名冲突时重新生成文件名，但必须有上限：并发占用或生成器返回同一路径时不能死循环。
+        for _ in range(20):
             path = Path(self._plan_file_path)
             try:
                 with path.open("x", encoding="utf-8") as plan_file:
@@ -323,9 +324,16 @@ class Agent:
                 break
             except FileExistsError:
                 self._plan_file_path = self._generate_plan_file_path(task)
-                self._system_prompt = self._base_system_prompt + self._build_plan_mode_prompt()
-                if self.use_openai and self._openai_messages:
-                    self._openai_messages[0]["content"] = self._system_prompt
+                self._apply_plan_prompt()
+            except OSError:
+                # open("x") 可能已经建出空文件，失败时别把它当成一份计划留给 /plans。
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                raise
+        else:
+            raise RuntimeError("计划文件连续命名冲突，未能写入计划初稿")
         read_file_state = getattr(self, "_read_file_state", None)
         if read_file_state is not None:
             try:
@@ -533,15 +541,40 @@ class Agent:
             print_info(f"已退出计划模式 → {self.permission_mode} 模式")
             return self.permission_mode
         else:
+            # 先算路径：plans_dir() 不可用时会在这一步抛错。若此时已经改了
+            # permission_mode，调用方就会停在"模式是 plan、提示词还是普通"的半切换态。
+            plan_file_path = self._generate_plan_file_path(task) if task else None
             self._pre_plan_mode = self.permission_mode
             self.permission_mode = "plan"
-            self._plan_file_path = self._generate_plan_file_path(task) if task else None
+            self._plan_file_path = plan_file_path
             self._system_prompt = self._base_system_prompt + self._build_plan_mode_prompt()
             if self._plan_file_path:
                 print_info(f"已进入计划模式。计划文件：{self._plan_file_path}")
             else:
                 print_info("已进入计划模式（只读）。还没有计划文件，输入任务后会按任务命名创建。")
             return "plan"
+
+    def plan_state_snapshot(self) -> dict[str, Any]:
+        """记录计划相关的全部现场，供 /plans-create 失败时整体回滚。"""
+        return {
+            "permission_mode": self.permission_mode,
+            "pre_plan_mode": self._pre_plan_mode,
+            "plan_file_path": self._plan_file_path,
+            "system_prompt": self._system_prompt,
+        }
+
+    def restore_plan_state(self, snapshot: dict[str, Any]) -> None:
+        """按快照恢复现场。
+
+        反向调用 toggle_plan_mode 只能恢复权限模式，原本绑定的计划文件会丢，
+        所以回滚必须连同 _pre_plan_mode、计划文件路径和系统提示词一起还原。
+        """
+        self.permission_mode = snapshot["permission_mode"]
+        self._pre_plan_mode = snapshot["pre_plan_mode"]
+        self._plan_file_path = snapshot["plan_file_path"]
+        self._system_prompt = snapshot["system_prompt"]
+        if self.use_openai and self._openai_messages:
+            self._openai_messages[0]["content"] = self._system_prompt
 
     def get_token_usage(self) -> dict:
         return {"input":self.total_input_tokens, "output":self.total_output_tokens}

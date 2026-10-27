@@ -369,3 +369,73 @@ def test_keep_planning_stays_in_plan_mode():
 
     assert "缺少验证步骤" in result
     assert agent.permission_mode == "plan"
+
+
+def test_toggle_plan_mode_keeps_state_when_plan_path_fails(monkeypatch):
+    agent = make_agent()
+
+    def boom():
+        raise OSError("plans dir unavailable")
+
+    monkeypatch.setattr(agent_module, "plans_dir", boom)
+    with pytest.raises(OSError):
+        agent.toggle_plan_mode("任务")
+
+    # 不能停在"模式是 plan、提示词还是普通"的半切换态。
+    assert agent.permission_mode == "default"
+    assert agent._pre_plan_mode is None
+    assert agent._plan_file_path is None
+    assert "Plan Mode Active" not in agent._system_prompt
+
+
+def test_restore_plan_state_brings_back_previous_plan_file(tmp_path, monkeypatch):
+    agent = make_agent()
+    monkeypatch.setattr(agent_module, "plans_dir", lambda: tmp_path)
+    agent.toggle_plan_mode("旧计划")
+    old_path, old_prompt = agent._plan_file_path, agent._system_prompt
+    snapshot = agent.plan_state_snapshot()
+
+    # 模拟 /plans-create：先退出，再以新任务进入。
+    agent.toggle_plan_mode()
+    agent.toggle_plan_mode("新任务")
+    assert agent._plan_file_path != old_path
+
+    agent.restore_plan_state(snapshot)
+
+    assert agent.permission_mode == "plan"
+    assert agent._plan_file_path == old_path
+    assert agent._system_prompt == old_prompt
+    assert agent._pre_plan_mode == "default"
+
+
+def test_create_plan_draft_cleans_up_partial_file(tmp_path, monkeypatch):
+    agent = make_agent()
+    monkeypatch.setattr(agent_module, "plans_dir", lambda: tmp_path)
+    agent.toggle_plan_mode("写一半")
+    target = Path(agent._plan_file_path)
+    original_open = Path.open
+
+    def broken_open(self, *args, **kwargs):
+        handle = original_open(self, *args, **kwargs)
+        handle.write("残留内容")
+        handle.close()
+        raise OSError("磁盘写入失败")
+
+    monkeypatch.setattr(Path, "open", broken_open)
+    with pytest.raises(OSError):
+        agent.create_plan_draft("写一半")
+
+    # 失败后不能把半成品文件留在计划目录里让 /plans 当成正常计划。
+    assert not target.exists()
+
+
+def test_create_plan_draft_gives_up_on_repeated_name_collisions(tmp_path, monkeypatch):
+    agent = make_agent()
+    occupied = tmp_path / "占用.md"
+    occupied.write_text("existing", encoding="utf-8")
+    monkeypatch.setattr(agent, "_generate_plan_file_path", lambda task=None: str(occupied))
+    agent.toggle_plan_mode("占用")
+
+    # 生成器一直返回已占用路径时必须报错退出，不能无限重试。
+    with pytest.raises(RuntimeError):
+        agent.create_plan_draft("占用")
