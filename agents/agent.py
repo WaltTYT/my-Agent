@@ -1391,7 +1391,15 @@ class Agent:
                 print_sub_agent_end("skill-fork", inp.get("skill_name", ""))
                 return f"Skill fork error: {e}"
 
-        return f'[Skill "{inp.get("skill_name", "")}" activated]\n\n{result["prompt"]}'
+        # 技能激活只是把流程注入上下文，不等于已经执行。不写清楚，模型会把这句
+        # "activated" 当成任务完成，然后编造"已生成"和并不存在的文件链接。
+        return (
+            f'[Skill "{inp.get("skill_name", "")}" activated — instructions loaded, nothing executed yet]\n'
+            "Execute the steps below with real tool calls, one at a time. "
+            "Do not tell the user the task is done, and do not state any file path, URL or result, "
+            "until the tools those steps require have actually returned data.\n\n"
+            f'{result["prompt"]}'
+        )
 
     def _request_tool_definitions(self) -> list[ToolDef]:
         """返回本次请求该发给模型的工具列表。

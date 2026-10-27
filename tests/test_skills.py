@@ -60,3 +60,23 @@ def test_create_skill_accepts_executable_instructions(isolated_env):
     instructions = "1. 用 read_file 读取配置。\n2. 用 write_file 写出结果到 output/report.md。"
     result = create_skill("report_writer", "写报告", instructions=instructions)
     assert result["ok"] is True
+
+
+def test_inline_skill_activation_says_nothing_executed(isolated_env, monkeypatch):
+    """技能激活只注入流程，必须明确告诉模型"还没执行"，否则它会直接宣称已完成。"""
+    import asyncio
+
+    import agents.skills as skills_module
+    from agents.agent import Agent
+
+    monkeypatch.setattr(skills_module, "execute_skill", lambda name, args: {
+        "context": "inline",
+        "prompt": "# Workflow\n1. 调用 http_request。",
+        "allowed_tools": [],
+    })
+
+    agent = Agent.__new__(Agent)
+    message = asyncio.run(agent._execute_skill_tool({"skill_name": "generate_image", "args": "小花"}))
+
+    assert "nothing executed yet" in message
+    assert "Do not tell the user the task is done" in message
