@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -11,6 +12,8 @@ from typing import Any
 
 from .frontmatter import format_frontmatter, parse_frontmatter
 from .paths import skill_evolution_dir
+
+logger = logging.getLogger(__name__)
 
 
 USAGE_LOG = "usage.jsonl"
@@ -514,7 +517,8 @@ def _maybe_prune_stale_skill(skill_name: str, stats: dict[str, Any]) -> bool:
     destination = archive_root / f"{_safe_skill_slug(skill_name)}-{int(time.time())}"
     try:
         shutil.move(str(skill_dir), str(destination))
-    except Exception:
+    except Exception as e:
+        logger.warning("failed to archive stale skill %s to %s: %s", skill_name, destination, e)
         return False
     event = {
         "event": "prune",

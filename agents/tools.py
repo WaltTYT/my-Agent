@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import logging
 import os
 import re
 import subprocess
@@ -11,6 +12,8 @@ from pathlib import Path
 
 from agents.memory import get_memory_dir, _update_memory_index
 from agents.paths import plans_dir
+
+logger = logging.getLogger(__name__)
 
 ToolDef = dict  # Anthropic tool schema dict
 #权限模式
@@ -426,7 +429,7 @@ def _write_file(inp:dict) -> str:
         if str(path).startswith(str(get_memory_dir())) and path.suffix == ".md" and path.name != "MEMORY.md":
             try:
                 _update_memory_index()
-            except Exception:
+            except OSError:
                 pass
         lines = inp["content"].split("\n")
         line_count = len(lines)
@@ -543,7 +546,7 @@ def _grep_search(inp: dict) -> str:
                 if len(lines) >100:
                     output += f"\n... and {len(lines) - 100} more matches"
                 return output
-        except Exception:
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
             pass
 
     return _grep_python(pattern, path, include)
@@ -559,7 +562,7 @@ def _grep_python(pattern: str, directory: str, include: str | None) -> str:
             return
         try:
             entries = os.listdir(d)
-        except Exception:
+        except OSError:
             return
         for name in entries:
             if name.startswith(".") or name == "node_modules":
@@ -577,7 +580,7 @@ def _grep_python(pattern: str, directory: str, include: str | None) -> str:
                         matches.append(f"{full}:{i+1}:{line}")
                         if len(matches) >= 200:
                             return
-            except Exception:
+            except (OSError, UnicodeDecodeError):
                 pass
 
     walk(directory)
@@ -705,7 +708,8 @@ def _load_settings(file_path: Path) -> dict | None:
         return None
     try:
         return json.loads(file_path.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception as e:
+        logger.warning("failed to load settings file %s: %s", file_path, e)
         return None
 
 _cached_rules: dict | None = None
@@ -917,7 +921,8 @@ def _resolve_image_key() -> str:
         from dotenv import find_dotenv, load_dotenv
 
         load_dotenv(find_dotenv(usecwd=True), override=False)
-    except Exception:
+    except Exception as e:
+        logger.warning("failed to load dotenv for image key: %s", e)
         return ""
     return (os.environ.get("OPENAI_API_KEY") or os.environ.get("BIGMODEL_API_KEY") or "").strip()
 

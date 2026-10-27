@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import re
 from collections import Counter
@@ -18,6 +19,9 @@ from .skill_evolution import (
     record_skill_invocation,
     record_skill_usage_judgments,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -130,7 +134,7 @@ def _parse_skill_file(file_path: Path, source: str, skill_dir: str) -> SkillDefi
             if raw_tools.startswith("["):
                 try:
                     allowed_tools = json.loads(raw_tools)
-                except Exception:
+                except json.JSONDecodeError:
                     allowed_tools = [s.strip() for s in raw_tools.strip("[]").split(",")]
             else:
                 allowed_tools = [s.strip() for s in raw_tools.split(",")]
@@ -147,7 +151,8 @@ def _parse_skill_file(file_path: Path, source: str, skill_dir: str) -> SkillDefi
             skill_dir=skill_dir,
         )
 
-    except Exception:
+    except Exception as e:
+        logger.warning("failed to parse skill file %s: %s", file_path, e)
         return None
 
 

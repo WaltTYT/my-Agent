@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import asdict, dataclass, field
 from typing import Any, Awaitable, Callable
+
+logger = logging.getLogger(__name__)
 
 
 SideQuery = Callable[[str, str], Awaitable[str]]
@@ -26,14 +29,14 @@ def _parse_json_object(text: str) -> dict[str, Any]:
         return {}
     try:
         return json.loads(raw)
-    except Exception:
+    except json.JSONDecodeError:
         pass
     start = raw.find("{")
     end = raw.rfind("}")
     if start >= 0 and end > start:
         try:
             return json.loads(raw[start : end + 1])
-        except Exception:
+        except json.JSONDecodeError:
             return {}
     return {}
 

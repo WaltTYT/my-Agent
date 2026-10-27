@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 import json
+import logging
 
 from .paths import folded_sessions_dir, sessions_dir
+
+logger = logging.getLogger(__name__)
 
 
 def save_session(session_id: str, data: dict[str, Any]) -> None:
@@ -30,7 +33,8 @@ def load_session(session_id: str) -> dict[str, Any] | None:
         return None
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception as e:
+        logger.warning("failed to load session %s: %s", path, e)
         return None
 
 
@@ -41,8 +45,8 @@ def list_sessions() -> list[dict[str, Any]]:
             data = json.loads(f.read_text(encoding="utf-8"))
             if "metadata" in data:
                 results.append(data["metadata"])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("failed to parse session file %s: %s", f, e)
     return results
 
 

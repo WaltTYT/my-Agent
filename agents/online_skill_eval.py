@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import re
 import time
 from pathlib import Path
@@ -15,6 +16,8 @@ from .skill_evolution import (
     get_evolution_dir,
     load_skill_stats,
 )
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_MIN_REPLAY_SAMPLES = 2
@@ -133,7 +136,7 @@ def _parse_json_object(text: str) -> dict[str, Any]:
     try:
         obj = json.loads(raw)
         return obj if isinstance(obj, dict) else {}
-    except Exception:
+    except json.JSONDecodeError:
         pass
     start = raw.find("{")
     end = raw.rfind("}")
@@ -141,7 +144,7 @@ def _parse_json_object(text: str) -> dict[str, Any]:
         try:
             obj = json.loads(raw[start : end + 1])
             return obj if isinstance(obj, dict) else {}
-        except Exception:
+        except json.JSONDecodeError:
             return {}
     return {}
 
@@ -577,7 +580,7 @@ def _split_score(sample_id: str) -> float:
     seed = raw[:8] if len(raw) >= 8 else _stable_hash(raw)[:8]
     try:
         return int(seed, 16) / float(16**8 - 1)
-    except Exception:
+    except ValueError:
         return 0.0
 
 
@@ -847,7 +850,8 @@ async def _build_llm_candidate_variant_async(
     }
     try:
         parsed = _parse_json_object(await side_query(system, json.dumps(payload, ensure_ascii=False)))
-    except Exception:
+    except Exception as e:
+        logger.warning("LLM candidate variant generation failed: %s", e)
         return None
     instructions = str(parsed.get("instructions") or "").strip()
     if not instructions:

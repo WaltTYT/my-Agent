@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import re
 import time
 from datetime import datetime, timezone
@@ -23,6 +24,8 @@ from typing import Any
 from .frontmatter import parse_frontmatter, format_frontmatter
 from .paths import long_term_dir
 from typing import Callable
+
+logger = logging.getLogger(__name__)
 # side query 是一个异步函数：输入 system prompt 和 user prompt，返回模型文本。
 # 这里标成 Any 是为了避免在运行时引入复杂 Awaitable 类型约束。
 SideQueryFn = Callable[[str, str], Any]  # actually Awaitable[str]
@@ -107,8 +110,8 @@ def list_memories() -> list[MemoryEntry]:
                 filename=f.name,
                 content=result.body,
             ))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("failed to parse memory file %s: %s", f, e)
     # 最近修改的记忆排在前面，方便 /memory 展示。
     entries.sort(key=lambda e: (d / e.filename).stat().st_mtime, reverse=True)
     return entries
@@ -227,8 +230,8 @@ def scan_memory_headers() -> list[MemoryHeader]:
                 description=meta.get("description"),
                 type=t if t in VALID_TYPES else None,
             ))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("failed to scan memory header %s: %s", f, e)
     headers.sort(key=lambda h: h.mtime_ms, reverse=True)
     return headers[:MAX_MEMORY_FILES]
 

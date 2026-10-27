@@ -4,10 +4,13 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from .frontmatter import parse_frontmatter
 from .tools import tool_definitions
+
+logger = logging.getLogger(__name__)
 
 # ─── Read-only tools (for explore and plan agents) ──────────
 
@@ -121,9 +124,9 @@ def _load_agents_from_dir(directory: Path, agents: dict[str, dict]) -> None:
                 "allowed_tools": allowed_tools,
                 "system_prompt": result.body,
             }
-        except Exception:
+        except Exception as e:
             # 单个自定义代理文件解析失败时不影响整个程序启动或其他代理加载。
-            pass
+            logger.warning("failed to load custom agent %s: %s", entry, e)
 
 
 

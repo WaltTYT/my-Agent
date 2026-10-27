@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import platform
 import subprocess
@@ -12,6 +13,8 @@ from .memory import build_memory_prompt_section
 from .skills import build_skill_descriptions
 from .subagent import build_agent_descriptions
 from .tools import get_deferred_tool_names
+
+logger = logging.getLogger(__name__)
 
 # ─── System prompt template (embedded) ──────────────────────
 
@@ -167,10 +170,11 @@ def _load_rules_dir(directory: Path) -> str:
                 content = f.read_text(encoding="utf-8")
                 content = _resolve_includes(content, rules_dir)
                 parts.append(f"<!-- rule: {f.name} -->\n{content}")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("failed to load rule file %s: %s", f, e)
         return "\n\n## Rules\n" + "\n\n".join(parts) if parts else ""
-    except Exception:
+    except Exception as e:
+        logger.warning("failed to scan rules directory %s: %s", rules_dir, e)
         return ""
 
 
@@ -185,8 +189,8 @@ def load_claude_md() -> str:
                 content = f.read_text(encoding="utf-8")
                 content = _resolve_includes(content, d)
                 parts.insert(0, content)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("failed to load CLAUDE.md at %s: %s", f, e)
         parent = d.parent
         if parent == d:
             break
@@ -212,7 +216,8 @@ def get_git_context() -> str:
         if status:
             result += f"\nGit status:\n{status}"
         return result
-    except Exception:
+    except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.CalledProcessError) as e:
+        logger.warning("failed to collect git context: %s", e)
         return ""
 
 

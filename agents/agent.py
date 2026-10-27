@@ -785,7 +785,8 @@ class Agent:
             from .skills import format_retrieved_skill_context
 
             context, top_ref = format_retrieved_skill_context(user_message, limit=3)
-        except Exception:
+        except Exception as e:
+            logging.warning("skill context retrieval failed: %s", e)
             return user_message, None
         if top_ref and isinstance(top_ref.get("all_hits"), list):
             self._last_retrieved_skill_hits = list(top_ref.get("all_hits") or [])
@@ -835,7 +836,8 @@ class Agent:
         print_confirmation(summary)
         try:
             return bool(await self.confirm_fn(summary))
-        except Exception:
+        except Exception as e:
+            logging.warning("online skill write confirmation failed: %s", e)
             return False
 
     async def _confirm_background_online_skill_write(self, summary: str) -> bool:
@@ -852,8 +854,8 @@ class Agent:
         if self.permission_mode == "plan":
             try:
                 coro.close()
-            except Exception:
-                pass
+            except RuntimeError as e:
+                logging.warning("failed to close pending background skill coroutine: %s", e)
             return
         task = asyncio.create_task(coro)
         self._background_skill_tasks.add(task)
@@ -862,8 +864,8 @@ class Agent:
             self._background_skill_tasks.discard(done_task)
             try:
                 done_task.result()
-            except Exception:
-                pass
+            except Exception as e:
+                logging.warning("background skill task failed: %s", e)
 
         task.add_done_callback(_done)
 
@@ -926,7 +928,8 @@ class Agent:
 
         try:
             from .online_skill_evolution import online_ingest
-        except Exception:
+        except ImportError as e:
+            logging.warning("online skill evolution unavailable: %s", e)
             return
 
         result = await online_ingest(
@@ -968,7 +971,8 @@ class Agent:
             result = record_usage_judgments(judgments)
             if result.get("pruned"):
                 self._refresh_runtime_system_prompt()
-        except Exception:
+        except Exception as e:
+            logging.warning("skill usage tracking failed: %s", e)
             return
 
     async def extract_now(self, hint: str = "") -> dict[str, Any]:
@@ -1107,8 +1111,8 @@ class Agent:
                 "openaiMessages": _sanitize_for_utf8(self._openai_messages) if self.use_openai else None,
                 "foldedSessionMemories": _sanitize_for_utf8(self._folded_session_memories),
             })
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("session auto-save failed: %s", e)
 
     #自动压缩
     async def _check_and_compact(self)->None:
@@ -1178,8 +1182,8 @@ class Agent:
         self._folded_session_memories.append(record)
         try:
             save_folded_session_memory(self.session_id, _sanitize_for_utf8(record))
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("folded session memory save failed: %s", e)
 
     #多层级压缩流水线
     def _run_compression_pipeline(self)->None:
@@ -1432,8 +1436,8 @@ class Agent:
                 parsed = json.loads(result)
                 if isinstance(parsed, dict) and parsed.get("ok"):
                     self._refresh_runtime_system_prompt()
-            except Exception:
-                pass
+            except Exception as e:
+                logging.warning("failed to parse skill tool result for prompt refresh: %s", e)
         return result
 
     async def _execute_compact_context_tool(self, inp: dict) -> str:
@@ -1731,9 +1735,9 @@ class Agent:
                             # 记录本 session 已经注入过的 memory，后续检索时可避免重复 surfaced。
                             self._already_surfaced_memories.add(m.path)
                             self._session_memory_bytes += m.size
-                except:
+                except Exception as e:
                     # memory 注入失败不应该中断主对话流程。
-                    pass
+                    logging.warning("memory injection failed: %s", e)
 
             if not self.is_sub_agent:
                 start_spinner()
@@ -2018,8 +2022,8 @@ class Agent:
                         for m in memories:
                             self._already_surfaced_memories.add(m.path)
                             self._session_memory_bytes += len(m.content.encode())
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.warning("memory injection failed: %s", e)
 
             if not self.is_sub_agent:
                 start_spinner()

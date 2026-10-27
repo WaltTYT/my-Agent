@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -37,6 +38,8 @@ from pathlib import Path
 from typing import Any
 
 from .ui import print_error, print_info
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_command(command: str) -> str:
@@ -374,6 +377,6 @@ class McpManager:
                 # 只接收包含 command 的对象；无效配置直接忽略。
                 if isinstance(config, dict) and "command" in config:
                     target[name] = config
-        except Exception:
+        except Exception as e:
             # 配置文件格式错误时跳过，避免一个坏配置导致整个 Agent 启动失败。
-            pass
+            logger.warning("failed to load MCP config %s: %s", path, e)
