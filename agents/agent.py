@@ -31,7 +31,7 @@ from agents.tools import ToolDef, tool_definitions, execute_tool, CONCURRENCY_SA
     get_active_tool_definitions, get_plan_mode_tool_definitions
 from agents.ui import print_info, print_divider, print_assistant_text, print_sub_agent_start, print_sub_agent_end, \
     start_spinner, stop_spinner, print_cost, print_tool_call, print_tool_result, print_confirmation, print_retry, \
-    print_error
+    print_error, print_warning
 
 
 PLAN_DELEGATE_INSTRUCTIONS = (
@@ -83,17 +83,30 @@ def _sanitize_for_utf8(value: Any) -> Any:
     return value
 
 
+def _is_zhipu_rate_limit(error: Exception) -> bool:
+    """智谱免费模型的限流（429 + 1302/1305），重试也基本无用。"""
+    status = getattr(error, "status_code", None) or getattr(error, "status", None)
+    if status != 429:
+        return False
+    message = str(error)
+    return any(marker in message for marker in ("1302", "1305", "访问量过大", "速率限制"))
+
+
 async def _with_retry(fn, max_retries: int = 3):
     for attempt in range(max_retries + 1):
         try:
             return await fn()
         except Exception as error:
-            if attempt >= max_retries or not _is_retryable(error):
+            rate_limited = _is_zhipu_rate_limit(error)
+            if attempt >= max_retries or not _is_retryable(error) or (rate_limited and attempt >= 1):
+                if rate_limited:
+                    print_warning("当前模型访问量过大（HTTP 429），可执行 /model glm-4-flash 切换到更稳定的模型。")
                 raise
-            delay = min(1000 * (2 ** attempt), 30000) / 1000 + (hash(str(time.time())) % 1000) / 1000
+            # 限流只短暂重试一次；网络抖动仍按指数退避。
+            delay = 0.5 if rate_limited else min(1000 * (2 ** attempt), 30000) / 1000 + (hash(str(time.time())) % 1000) / 1000
             status = getattr(error, "status_code", None) or getattr(error, "status", None)
             reason = f"HTTP {status}" if status else (getattr(error, "code", None) or "network error")
-            print_retry(attempt + 1, max_retries, reason)
+            print_retry(attempt + 1, 1 if rate_limited else max_retries, reason)
             await asyncio.sleep(delay)
 
 MODEL_CONTEXT = {
