@@ -289,6 +289,35 @@ def test_plans_create_chat_failure_keeps_repl_alive(monkeypatch, capsys):
     assert agent.plan_drafts == ["添加联网功能"]
 
 
+def test_skill_create_accepts_natural_language(monkeypatch):
+    agent = _drive_repl(monkeypatch, ["/skill-create 会做一个生成图片的技能，我会给你模型的api"])
+
+    # 自然语言需求不再被"用法"打回，而是交给模型补全字段并落盘。
+    assert len(agent.chat_requests) == 1
+    prompt = agent.chat_requests[0]
+    assert "skill_create" in prompt
+    assert "生成图片的技能" in prompt
+
+
+def test_skill_create_pipe_format_still_creates_directly(monkeypatch):
+    calls = []
+    monkeypatch.setattr(cli, "create_skill", lambda **kwargs: calls.append(kwargs) or {"ok": True, "skill": "图片生成", "file": "x/SKILL.md"})
+
+    agent = _drive_repl(monkeypatch, ["/skill-create 图片生成 | 调用图片模型 | 需要配图时 | 读取 API 并生成"])
+
+    assert calls[0]["name"] == "图片生成"
+    assert calls[0]["when_to_use"] == "需要配图时"
+    # 管道格式走本地直建，不应再触发一轮模型对话。
+    assert agent.chat_requests == []
+
+
+def test_skill_create_without_args_shows_usage(monkeypatch, capsys):
+    agent = _drive_repl(monkeypatch, ["/skill-create"])
+
+    assert "用法：/skill-create" in capsys.readouterr().out
+    assert agent.chat_requests == []
+
+
 def test_plan_with_task_remains_a_compatible_alias(monkeypatch):
     agent = _drive_repl(monkeypatch, ["/plan 重构记忆模块"])
 

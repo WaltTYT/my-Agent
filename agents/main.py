@@ -446,26 +446,38 @@ async def run_repl(agent: Agent) -> None:
             else:
                 print_error(str(result.get("error") or result))
             continue
-        if inp.startswith("/skill-create "):
-            _, rest = inp.split(" ", 1)
-            parts = [part.strip() for part in rest.split("|", 3)]
-            if len(parts) < 4 or not all(parts[:4]):
-                print_error("用法：/skill-create <名称> | <描述> | <何时使用> | <指令>")
+        if inp == "/skill-create" or inp.startswith("/skill-create "):
+            request = inp[len("/skill-create"):].strip()
+            if not request:
+                print_error("用法：/skill-create <一句话需求>，或 /skill-create <名称> | <描述> | <何时使用> | <指令>")
                 continue
-            result = create_skill(
-                name=parts[0],
-                description=parts[1],
-                when_to_use=parts[2],
-                instructions=parts[3],
-                target="project",
-                context="inline",
-                user_invocable=False,
-                evidence="Manual REPL skill creation",
-            )
-            if result.get("ok"):
-                print_info(f"已创建技能 {result.get('skill')}：{result.get('file')}")
-            else:
-                print_error(str(result.get("error") or result))
+            parts = [part.strip() for part in request.split("|", 3)]
+            if len(parts) == 4 and all(parts):
+                result = create_skill(
+                    name=parts[0],
+                    description=parts[1],
+                    when_to_use=parts[2],
+                    instructions=parts[3],
+                    target="project",
+                    context="inline",
+                    user_invocable=False,
+                    evidence="Manual REPL skill creation",
+                )
+                if result.get("ok"):
+                    print_info(f"已创建技能 {result.get('skill')}：{result.get('file')}")
+                else:
+                    print_error(str(result.get("error") or result))
+                continue
+            # 自然语言需求：交给模型补全字段并落盘，不再让用户按管道格式重写一遍。
+            try:
+                await agent.chat(
+                    "请直接用 skill_create 工具创建这个技能：名称、描述、触发条件、指令都由你根据"
+                    "下面的需求补全，不要向我追问字段，也不要只输出模板。\n"
+                    f"需求：{request}"
+                )
+            except Exception as exc:
+                if "abort" not in str(exc).lower():
+                    print_error(str(exc))
             continue
 
         # Skill invocation: /<skill-name> [args]
@@ -545,7 +557,7 @@ REPL 命令：
   /extract_now        提取当前待处理的在线技能窗口：/extract_now [提示]
   /skill-feedback     记录反馈：/skill-feedback <技能> <评分> [备注]
   /skill-evolve       进化技能：/skill-evolve <技能> <可沉淀的经验>
-  /skill-create       创建技能：/skill-create <名称> | <描述> | <何时使用> | <指令>
+  /skill-create       创建技能：/skill-create <一句话需求> 或 <名称> | <描述> | <何时使用> | <指令>
   /<技能名>           调用技能（例如 /commit "fix types"）
 
 示例：
