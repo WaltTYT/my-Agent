@@ -463,6 +463,7 @@ class Agent:
 
     ## Online Search Tips:
     - Use search_web to find current documentation, best practices, or examples
+    - Write search queries as 2-5 space-separated keywords, not long sentences (Chinese especially: "亚运会 乒乓球 男单" not "2026亚运会乒乓球男单冠军")
     - Use get_web_content to examine specific pages or documentation
     - Include relevant URLs and research findings in your plan for better user understanding
     - If an online tool reports an error, state that the information could not be verified; never infer current facts from a failed search.
