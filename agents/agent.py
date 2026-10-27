@@ -679,7 +679,11 @@ class Agent:
         assistant_text = "".join(self._turn_output_buffer or []).strip()
         self._turn_output_buffer = None
         if not self.is_sub_agent and not self._aborted:
-            self._schedule_background_skill_task(self._run_skill_usage_tracking(original_user_message, assistant_text))
+            self._schedule_background_skill_task(
+                self._run_skill_usage_tracking(
+                    original_user_message, assistant_text, list(self._last_retrieved_skill_hits or [])
+                )
+            )
             if ready_skill_extraction_window:
                 self._schedule_background_skill_task(self._run_online_skill_evolution(ready_skill_extraction_window))
             self._set_pending_skill_extraction_window(
@@ -931,10 +935,12 @@ class Agent:
         elif result.get("action") not in {"add_denied", "merge_denied"}:
             print_error(f"在线技能进化失败：{result.get('error') or result}")
 
-    async def _run_skill_usage_tracking(self, original_user_message: str, assistant_text: str) -> None:
+    async def _run_skill_usage_tracking(
+        self, original_user_message: str, assistant_text: str, hits: list[dict[str, Any]]
+    ) -> None:
         if not self._online_evolution_enabled() or self.permission_mode == "plan":
             return
-        hits = list(self._last_retrieved_skill_hits or [])
+        hits = list(hits or [])
         if not hits or not assistant_text.strip():
             return
         side_query = self._build_side_query(max_tokens=700)

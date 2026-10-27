@@ -8,6 +8,7 @@ import os
 import re
 import signal
 import sys
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
@@ -262,6 +263,25 @@ def _show_plans(query: str = "") -> None:
     print_info(f"计划文件：{path}\n\n{content}")
 
 
+async def _read_user_line() -> str:
+    """在守护线程里读一行，避免 input() 阻塞事件循环把后台任务拖到下一轮。"""
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future[str] = loop.create_future()
+
+    def _worker() -> None:
+        try:
+            line = input()
+        except BaseException as exc:
+            if not future.done():
+                loop.call_soon_threadsafe(future.set_exception, exc)
+        else:
+            if not future.done():
+                loop.call_soon_threadsafe(future.set_result, line)
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return await future
+
+
 async def run_repl(agent: Agent) -> None:
     """Interactive REPL loop."""
 
@@ -323,7 +343,7 @@ async def run_repl(agent: Agent) -> None:
     while True:
         print_user_prompt()
         try:
-            line = input()
+            line = await _read_user_line()
         except (EOFError, KeyboardInterrupt):
             print_goodbye()
             break
