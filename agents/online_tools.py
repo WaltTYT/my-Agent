@@ -6,6 +6,7 @@
 import asyncio
 import json
 import re
+from pathlib import Path
 from typing import Dict, Any, Optional
 import aiohttp
 from urllib.parse import quote, urlparse
@@ -160,6 +161,64 @@ class OnlineSearchTool:
             logger.error(f"获取网页内容错误: {e}")
             return _network_error("取网页内容", e)
 
+    async def http_request(
+        self,
+        method: str,
+        url: str,
+        headers: dict[str, str] | None = None,
+        json_body: dict | None = None,
+        body: str | None = None,
+        timeout: float = 60,
+        save_to: str | None = None,
+        max_length: int = 4000,
+    ) -> str:
+        """发送任意 HTTP 请求，用于调用外部 API。
+
+        save_to 用于二进制响应（如图片）：把原始字节写进文件并返回路径与大小。
+        """
+        method = (method or "GET").upper()
+        if method not in {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"}:
+            return f"Error: 不支持的请求方法 {method}"
+
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return "Error: url 必须是以 http:// 或 https:// 开头的完整地址"
+
+        send_headers = {str(k): str(v) for k, v in (headers or {}).items()}
+        kwargs: dict = {"headers": send_headers}
+        if json_body is not None and body:
+            return "Error: json_body 和 body 只能二选一"
+        if json_body is not None:
+            kwargs["json"] = json_body
+        elif body:
+            kwargs["data"] = body.encode("utf-8")
+        if not send_headers:
+            send_headers["User-Agent"] = "Lily/1.0"
+
+        try:
+            session = await self._get_session()
+            request_timeout = aiohttp.ClientTimeout(total=max(1.0, float(timeout)))
+            async with session.request(method, url, timeout=request_timeout, **kwargs) as response:
+                content_type = response.headers.get("Content-Type", "")
+                raw = await response.read()
+                status_line = f"HTTP {response.status} ({content_type or 'unknown content-type'})"
+
+                if save_to:
+                    target = Path(save_to)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(raw)
+                    return f"{status_line}\nSaved {len(raw)} bytes to {target}"
+
+                text = raw.decode("utf-8", errors="replace")
+                if len(text) > max_length:
+                    text = text[:max_length] + "... [内容截断]"
+                return f"{status_line}\n{text}"
+        except asyncio.TimeoutError:
+            return f"Error: 请求超时（{timeout}s）"
+        except Exception as e:
+            logger.error(f"HTTP 请求错误: {e}")
+            return _network_error("HTTP 请求", e)
+
     async def close(self):
         """关闭会话"""
         if self.session and not self.session.closed:
@@ -175,6 +234,10 @@ async def search_web(query: str, max_results: int = 5) -> str:
 async def get_web_content(url: str, max_length: int = 2000) -> str:
     """获取网页内容函数接口"""
     return await online_search_tool.get_web_content(url, max_length)
+
+async def http_request(**kwargs) -> str:
+    """发送任意 HTTP 请求函数接口"""
+    return await online_search_tool.http_request(**kwargs)
 
 async def close_online_tools():
     """关闭联网工具"""

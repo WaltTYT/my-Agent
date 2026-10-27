@@ -296,6 +296,40 @@ tool_definitions: list[ToolDef] = [
             "required": ["url"],
         },
     },
+    # ─── 通用 HTTP 请求（调用外部 API） ─────────────────────────
+    {
+        "name": "http_request",
+        "description": (
+            "Send an arbitrary HTTP request (GET/POST/PUT/PATCH/DELETE) to an external API. "
+            "Supports custom headers, JSON bodies and plain bodies. "
+            "Set save_to to write a binary response (e.g. an image) to a file and get the saved path back. "
+            "Every call requires user confirmation."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "method": {
+                    "type": "string",
+                    "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"],
+                    "description": "HTTP method, defaults to GET",
+                },
+                "url": {"type": "string", "description": "Full http:// or https:// URL"},
+                "headers": {
+                    "type": "object",
+                    "description": "Request headers, e.g. {\"Authorization\": \"Bearer ...\"}",
+                    "additionalProperties": {"type": "string"},
+                },
+                "json_body": {"type": "object", "description": "JSON request body (mutually exclusive with body)"},
+                "body": {"type": "string", "description": "Raw request body (mutually exclusive with json_body)"},
+                "timeout": {"type": "number", "description": "Total timeout in seconds, default 60"},
+                "save_to": {
+                    "type": "string",
+                    "description": "Optional file path. When set, the raw response bytes are written here instead of being returned as text.",
+                },
+            },
+            "required": ["url"],
+        },
+    },
     # ─── Tool search (deferred tool loader) ─────────────────────
     {
         "name": "tool_search",
@@ -798,8 +832,8 @@ def check_permission(
                     f"完成后再调用 exit_plan_mode。不要向用户声称已保存。"
                 ),
             }
-        if tool_name == "run_shell":
-            return {"action": "deny", "message": "计划模式下禁止执行 shell 命令"}
+        if tool_name in ("run_shell", "http_request"):
+            return {"action": "deny", "message": f"计划模式下禁止执行 {tool_name}（只读分析阶段不发起外部请求）"}
 
     if tool_name in ("enter_plan_mode", "exit_plan_mode"):
         return {"action": "allow"}
@@ -825,6 +859,10 @@ def check_permission(
     elif tool_name == "skill_create":
         needs_confirm = True
         confirm_message = f"创建技能：{inp.get('name', '')}"
+    elif tool_name == "http_request":
+        # 每条外部请求都可能把数据（含密钥）发出去，必须逐次确认。
+        needs_confirm = True
+        confirm_message = f"外部请求：{str(inp.get('method') or 'GET').upper()} {inp.get('url', '')}"
 
     if needs_confirm:
         if mode == "dontAsk":
@@ -938,6 +976,31 @@ async def execute_tool(
             return _truncate_result(result)
         except Exception as e:
             return f"Error getting web content: {str(e)}"
+
+    if name == "http_request":
+        from .online_tools import http_request
+        url = (inp.get("url") or "").strip()
+        if not url:
+            return "Error: url is required for http_request"
+        save_to = inp.get("save_to")
+        if save_to:
+            # save_to 是本次调用要新建的文件，不能要求它已经存在。
+            try:
+                save_to = str(_resolve_tool_path(save_to, must_exist=False).resolve())
+            except Exception as e:
+                return f"Error: invalid save_to path: {e}"
+        try:
+            return _truncate_result(await http_request(
+                method=inp.get("method", "GET"),
+                url=url,
+                headers=inp.get("headers"),
+                json_body=inp.get("json_body"),
+                body=inp.get("body"),
+                timeout=inp.get("timeout", 60),
+                save_to=save_to,
+            ))
+        except Exception as e:
+            return f"Error in http_request: {e}"
 
     if name == "save_memory":
         from .memory import save_memory

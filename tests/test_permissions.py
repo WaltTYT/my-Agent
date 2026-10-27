@@ -18,6 +18,19 @@ def test_plan_mode_blocks_writes_and_shell():
     assert check_permission("run_shell", {"command": "ls"}, mode="plan")["action"] == "deny"
 
 
+def test_plan_mode_blocks_external_http_requests():
+    result = check_permission("http_request", {"url": "https://a.com"}, mode="plan")
+    assert result["action"] == "deny"
+
+
+def test_http_request_always_needs_confirmation():
+    result = check_permission("http_request", {"method": "POST", "url": "https://a.com"}, mode="default")
+    assert result["action"] == "confirm"
+    assert "POST https://a.com" in result["message"]
+    # acceptEdits 只放开编辑类工具，外部请求仍需确认。
+    assert check_permission("http_request", {"url": "https://a.com"}, mode="acceptEdits")["action"] == "confirm"
+
+
 def test_plan_mode_allows_writing_the_plan_file_only():
     plan = "/tmp/plan.md"
     assert check_permission("write_file", {"file_path": plan}, mode="plan", plan_file_path=plan)["action"] == "allow"
