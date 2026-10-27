@@ -184,6 +184,12 @@ async def maintain_online_skill_candidate(
     action = str(decision.get("action") or "").strip().lower()
     target_skill = str(decision.get("target_skill") or "").strip()
 
+    if action not in {"add", "merge", "discard"}:
+        action = "discard"
+
+    if action == "discard":
+        return {"ok": True, "action": "discard", "skill": "", "decision": decision}
+
     if exact_target:
         action = "merge"
         target_skill = exact_target
@@ -195,11 +201,20 @@ async def maintain_online_skill_candidate(
     elif action == "merge" and not target_skill:
         target_skill = top_reference_name
 
-    if action not in {"add", "merge", "discard"}:
-        action = "discard"
-
-    if action == "discard":
-        return {"ok": True, "action": "discard", "skill": "", "decision": decision}
+    if action == "merge":
+        target_skill = target_skill or top_reference_name
+        if not target_skill:
+            return {"ok": False, "action": "merge", "error": "missing target_skill", "decision": decision}
+        # 合并必须带完整正文：拿不到就放弃写入，退而用候选正文会整段覆盖原技能。
+        merged_instructions = str(decision.get("merged_instructions") or "").strip()
+        if not merged_instructions:
+            return {
+                "ok": False,
+                "action": "merge",
+                "skill": target_skill,
+                "error": "merged_instructions missing; refusing to overwrite existing skill",
+                "decision": decision,
+            }
 
     write_summary = f"online skill evolution: {action} {target_skill or candidate.name}"
     if confirm_write is not None and not await confirm_write(write_summary):
@@ -212,15 +227,12 @@ async def maintain_online_skill_candidate(
         }
 
     if action == "merge":
-        target_skill = target_skill or top_reference_name
-        if not target_skill:
-            return {"ok": False, "action": "merge", "error": "missing target_skill", "decision": decision}
         result = evolve_skill(
             skill_name=target_skill,
             lesson=candidate.evidence or candidate.description,
             rationale=str(decision.get("reason") or "Online maintainer merge"),
             target="active",
-            instructions=str(decision.get("merged_instructions") or candidate.instructions),
+            instructions=merged_instructions,
             description=str(decision.get("merged_description") or ""),
             when_to_use=str(decision.get("merged_when_to_use") or candidate.when_to_use),
             tags=candidate.tags,
