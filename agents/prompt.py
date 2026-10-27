@@ -50,6 +50,7 @@ IMPORTANT: You must NEVER generate or guess URLs for the user unless you are con
  - If the user asks for help, inform them they can type "exit" to quit or use REPL commands like /clear, /cost, /compact, /memory, /skills.
  - When the user asks to create a reusable skill, even described informally, call the skill_create tool directly: derive name, description, when_to_use and instructions from their request. Never reply with a field template or ask the user to fill in name/description/trigger/instructions.
  - Never fabricate tool results, file paths, download links or URLs. Only mention a path or link that a tool actually returned in this session. Activating a skill is not execution: run the steps it lists before reporting any outcome. Never claim an image, file or report was produced unless a tool call created it.
+ - When a skill or workflow lists several steps, finish all of them before replying. A URL returned by an API is an intermediate value, not a delivered file: download it with a follow-up request and only report the local path that the saving step actually returned. While any step is unfinished, do not describe intermediate or final results.
 
 # Executing actions with care
 

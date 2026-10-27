@@ -1317,10 +1317,22 @@ class Agent:
             return await self._execute_agent_tool(inp)
         if name == "skill":
             return await self._execute_skill_tool(inp)
+        # 模型经常把技能名当成工具名直接调用（如 generate_image）。若不兜底，它只会收到
+        # "Unknown tool" 然后放弃整轮任务，用户看到的就是"技能调用了但什么都没发生"。
+        if not any(t.get("name") == name for t in self.tools) and self._skill_exists(name):
+            return await self._execute_skill_tool({
+                "skill_name": name,
+                "args": inp.get("args") or inp.get("skill_name") or "",
+            })
             # Route MCP tool calls to the MCP manager
         if self._mcp_manager.is_mcp_tool(name):
             return await self._mcp_manager.call_tool(name, inp)
         result = await execute_tool(name, inp, self._read_file_state, self.tools)
+        if name == "http_request":
+            # 记住"拿到了文件 URL 但没保存"这种状态，回合结束时好补一次下载。
+            self._pending_download_url = (
+                None if inp.get("save_to") else self._extract_download_url(result)
+            )
         if name in {"write_file", "edit_file"}:
             self._adopt_plan_file_path(inp, result)
         if name in {"skill_create", "skill_evolve"}:
@@ -1346,6 +1358,30 @@ class Agent:
             "Continue from the folded memory now present in the conversation context."
             f"{suffix}"
         )
+
+
+    _DOWNLOAD_EXT = (
+        ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg",
+        ".pdf", ".zip", ".mp3", ".mp4", ".wav", ".csv",
+        ".xlsx", ".docx", ".pptx", ".txt",
+    )
+
+    @classmethod
+    def _extract_download_url(cls, result: str) -> str | None:
+        """从工具返回里找出一个"看起来是文件"的 URL，用于补下载。"""
+        for match in re.finditer(r"https?://[^\s\"'<>\\]+", str(result or "")):
+            url = match.group(0).rstrip(",).")
+            path = url.split("?", 1)[0].lower()
+            if path.endswith(cls._DOWNLOAD_EXT):
+                return url
+        return None
+
+
+    @staticmethod
+    def _skill_exists(name: str) -> bool:
+        from .skills import discover_skills
+
+        return any(skill.name == name for skill in discover_skills())
 
 
     async def _execute_skill_tool(self, inp: dict) -> str:
@@ -1397,7 +1433,11 @@ class Agent:
             f'[Skill "{inp.get("skill_name", "")}" activated — instructions loaded, nothing executed yet]\n'
             "Execute the steps below with real tool calls, one at a time. "
             "Do not tell the user the task is done, and do not state any file path, URL or result, "
-            "until the tools those steps require have actually returned data.\n\n"
+            "until the tools those steps require have actually returned data.\n"
+            "If any http_request returns a URL in its body, that is not a result — you MUST immediately "
+            "send another http_request (method=GET, that url, save_to=<target path>) to download it. "
+            "Never say an image/file is being downloaded or has been saved until a call returns "
+            "'Saved N bytes'.\n\n"
             f'{result["prompt"]}'
         )
 
@@ -1850,6 +1890,8 @@ class Agent:
     async def _chat_openai(self, user_message:str) -> None:
         user_message = _safe_utf8_text(user_message)
         self._openai_messages.append({"role": "user", "content": user_message})
+        self._pending_download_url = None
+        self._download_nudges = 0
 
         #预取句柄 MemoryPrefetch
         memory_prefetch: MemoryPrefetch | None = None
@@ -1911,6 +1953,25 @@ class Agent:
             tool_calls = message.get("tool_calls")
 
             if not tool_calls:
+                # 模型常在拿到文件 URL 后只回一句"正在下载"就结束回合，实际从未发起下载。
+                # 这里强行追问一次，把没做完的下载补上。
+                pending = getattr(self, "_pending_download_url", None)
+                if pending and getattr(self, "_download_nudges", 0) < 1:
+                    self._download_nudges = getattr(self, "_download_nudges", 0) + 1
+                    self._pending_download_url = None
+                    self._openai_messages.append({
+                        "role": "user",
+                        "content": (
+                            "[System] The previous http_request returned this file URL and no save_to:\n"
+                            f"{pending}\n"
+                            "Nothing was downloaded yet. Call http_request again now with method=GET, "
+                            "that url, and save_to set to the target path. Only after it returns "
+                            "'Saved N bytes' may you tell the user the file exists."
+                        ),
+                    })
+                    if not self.is_sub_agent:
+                        print_info("检测到未完成的下载，正在继续…")
+                    continue
                 if not self.is_sub_agent:
                     print_cost(self.total_input_tokens, self.total_output_tokens)
                 break

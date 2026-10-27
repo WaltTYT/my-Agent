@@ -50,7 +50,10 @@ Each `http_request` call requires user confirmation. Do not retry more than once
 - On `HTTP 200`, parse the JSON body and take `data[0].url`.
 - On any other status, report the API error text verbatim and stop. Do not claim an image was produced.
 
-## 5. Download and save
+## 5. Download and save (MANDATORY — the task fails if you skip this)
+
+Stop and only reply after this step has actually run. The URL from step 4 is not the image; the image
+only exists once this call returns `Saved N bytes`.
 
 Call `http_request` again with method `GET` on `data[0].url`, and set `save_to` to the target path
 from step 1. Then report:
@@ -58,6 +61,9 @@ from step 1. Then report:
 - the absolute saved path,
 - the saved byte size,
 - the model used.
+
+Never reply with "downloading…" or "已保存" before this call returns. If you catch yourself about to
+end the turn after step 4, send this download request instead.
 
 If the response contains base64 data instead of a URL, write it with `write_file` after
 decoding, and say so explicitly.

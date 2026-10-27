@@ -80,3 +80,94 @@ def test_inline_skill_activation_says_nothing_executed(isolated_env, monkeypatch
 
     assert "nothing executed yet" in message
     assert "Do not tell the user the task is done" in message
+
+
+def test_skill_name_called_as_tool_is_routed(isolated_env, monkeypatch):
+    """模型常把 generate_image 直接当工具名调用，必须路由到 skill 而不是 Unknown tool。"""
+    import asyncio
+
+    import agents.skills as skills_module
+    from agents.agent import Agent
+    from agents.skills import SkillDefinition
+
+    monkeypatch.setattr(skills_module, "discover_skills", lambda: [
+        SkillDefinition(name="generate_image", description="draw", user_invocable=False),
+    ])
+    monkeypatch.setattr(skills_module, "execute_skill", lambda name, args: {
+        "context": "inline",
+        "prompt": "# Workflow\n1. 调用 http_request。",
+        "allowed_tools": [],
+    })
+
+    agent = Agent.__new__(Agent)
+    agent.tools = []
+    message = asyncio.run(agent._execute_tool_call(
+        "generate_image", {"args": "小猪猪", "skill_name": "generate_image"}
+    ))
+
+    assert "nothing executed yet" in message
+
+
+def test_extract_download_url_finds_file_urls():
+    """API 返回的图片 URL 要被识别出来，普通接口 URL 不算。"""
+    from agents.agent import Agent
+
+    cogview = (
+        'HTTP 200 (application/json)\n{"data":[{"url":'
+        '"https://example.com/20261027_watermark.png?Signature=abc%3D&Expires=123"}]}'
+    )
+    assert Agent._extract_download_url(cogview) == (
+        "https://example.com/20261027_watermark.png?Signature=abc%3D&Expires=123"
+    )
+    assert Agent._extract_download_url('{"url":"https://api.example.com/v4/chat"}') is None
+    assert Agent._extract_download_url("") is None
+
+
+def test_http_request_without_save_to_marks_pending_download(isolated_env, monkeypatch):
+    """未保存的 http_request 要留下待下载标记，保存成功后要清掉。"""
+    import asyncio
+
+    import agents.skills as skills_module
+    from agents.agent import Agent
+
+    monkeypatch.setattr(skills_module, "discover_skills", lambda: [])
+
+    async def fake_execute_tool(name, *args, **kwargs):
+        return 'HTTP 200\n{"data":[{"url":"https://example.com/a.png"}]}'
+
+    monkeypatch.setattr("agents.agent.execute_tool", fake_execute_tool)
+
+    agent = Agent.__new__(Agent)
+    agent.tools = []
+    agent._pending_download_url = None
+    agent._read_file_state = {}
+    agent._mcp_manager = type("M", (), {"is_mcp_tool": lambda self, name: False})()
+
+    asyncio.run(agent._execute_tool_call("http_request", {"url": "https://api.example.com/gen"}))
+    assert agent._pending_download_url == "https://example.com/a.png"
+
+    asyncio.run(agent._execute_tool_call(
+        "http_request", {"url": "https://example.com/a.png", "save_to": "~/Desktop/a.png"}
+    ))
+    assert agent._pending_download_url is None
+
+
+def test_unknown_tool_is_not_routed(isolated_env, monkeypatch):
+    import asyncio
+
+    import agents.skills as skills_module
+    from agents.agent import Agent
+
+    monkeypatch.setattr(skills_module, "discover_skills", lambda: [])
+    async def fake_execute_tool(name, *args, **kwargs):
+        return f"Unknown tool: {name}"
+
+    monkeypatch.setattr("agents.agent.execute_tool", fake_execute_tool)
+
+    agent = Agent.__new__(Agent)
+    agent.tools = []
+    agent._read_file_state = {}
+    agent._mcp_manager = type("M", (), {"is_mcp_tool": lambda self, name: False})()
+    message = asyncio.run(agent._execute_tool_call("not_a_skill", {}))
+
+    assert message == "Unknown tool: not_a_skill"
