@@ -424,7 +424,10 @@ def _write_file(inp:dict) -> str:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(inp["content"], encoding="utf-8")
         if str(path).startswith(str(get_memory_dir())) and path.suffix == ".md" and path.name != "MEMORY.md":
-            _update_memory_index()
+            try:
+                _update_memory_index()
+            except Exception:
+                pass
         lines = inp["content"].split("\n")
         line_count = len(lines)
         preview = "\n".join(f"{i + 1:4d} | {l}" for i, l in enumerate(lines[:30]))
