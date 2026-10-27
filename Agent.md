@@ -18,7 +18,7 @@
 | rich | 15.0.0 | 终端 UI 渲染 |
 | tqdm | 4.70.1 | 进度显示 |
 | python-dotenv | 1.2.4 | `.env` 配置加载 |
-| pytest | [待确认版本] | 测试框架 |
+| pytest | 9.1.1 | 测试框架 |
 
 ### 架构模式
 
@@ -49,7 +49,8 @@
 - **探索**：先读代码再发言；定向查找用 Glob/Grep，跨模块理解用 Explore 代理
 - **规划**：多文件改动或方案不唯一时，先给出计划征得同意
 - **实现**：按现有模块边界改动，新功能优先挂到既有扩展点（新工具 → `tools.py`；新命令 → `main.py` REPL 分发；新规则 → `.lily/rules/`）
-- **验证**：改动后必须运行 `python -m pytest tests -q`（当前基线 91 passed）；涉及 UI 的改动重启 REPL 目测确认
+- **解释器**：Python 命令一律走 conda 环境 `my-agent`，写成 `conda run -n my-agent --no-capture-output python ...`；交互式启动用 `.\start.bat`。不要直接调用系统 `python`（本机指向 `D:\study\pythonA`，缺项目依赖）
+- **验证**：改动后必须运行 `conda run -n my-agent --no-capture-output python -m pytest tests -q`（当前基线 158 passed）；涉及 UI 的改动重启 REPL 目测确认
 
 ### 2.4 代码风格规则
 
@@ -110,8 +111,7 @@ my-Agent/                      # 项目根（Lily）
 ## 6. 测试指南
 
 ```powershell
-conda activate my-agent
-python -m pytest tests -q        # 基线：91 passed
+conda run -n my-agent --no-capture-output python -m pytest tests -q   # 基线：158 passed
 ```
 
 - 测试不联网（模型调用被 fake 替身替换，见 tests/）
@@ -152,6 +152,7 @@ python -m pytest tests -q        # 基线：91 passed
 ## 9. 已知约束
 
 - conda 环境目录 `D:\study\miniconda\envs\my-agent` 需管理员权限才能写入（已通过 icacls 授权，pip 正常）
+- IDE 内置终端未执行 `conda init`，`conda activate my-agent` 会报 "Run 'conda init' before 'conda activate'"（conda 是 exe 而非 PowerShell 函数）。非交互命令一律用 `conda run -n my-agent --no-capture-output`，或直接调 `D:\study\miniconda\envs\my-agent\python.exe`；不要为此执行 `conda init`，那会改写用户的 PowerShell profile
 - `.bat` 脚本必须 CRLF + 纯 ASCII 注释，否则 cmd 解析截断
 - 运行时数据统一落在项目内 `memory/`（默认根目录），子目录为 `sessions/`、`sessions/folded/`、`long-term/`、`plans/`、`tool-results/`、`skill-evolution/`；路径全部由 `agents/paths.py` 提供，不要在模块里再拼 `Path.home()`
 - 数据根目录可用环境变量 `LILY_DATA_DIR` 覆盖；指向跨项目共享目录时，不同项目的会话与记忆会混在一起，需要自行分开
@@ -174,7 +175,7 @@ python -m pytest tests -q        # 基线：91 passed
 - [ ] 代码遵循项目约定（4 空格、snake_case、无新增注释）
 - [ ] 未暴露任何机密或凭证（密钥只在 .env）
 - [ ] 所有用户可见文案为简体中文，模型侧描述为英文
-- [ ] `python -m pytest tests -q` 全部通过（基线 91）
+- [ ] `conda run -n my-agent --no-capture-output python -m pytest tests -q` 全部通过（基线 158）
 - [ ] 涉及文件读写的改动显式 encoding="utf-8"
 - [ ] 变更最小化且聚焦，未顺手重构无关代码
 - [ ] 提交遵循 8.1 格式，且已获得用户提交/推送许可
