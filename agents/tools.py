@@ -333,6 +333,38 @@ tool_definitions: list[ToolDef] = [
             "required": ["method", "url"],
         },
     },
+    # ─── 图片生成（CogView） ───────────────────────────────────
+    {
+        "name": "generate_image",
+        "description": (
+            "Generate one image from a text prompt with Zhipu CogView and save it to disk in a single "
+            "confirmed call. Reads the API key from the environment, posts to the image endpoint, "
+            "downloads the result, and returns the absolute path, byte size and model. "
+            "Optimize the user's request into a concrete visual prompt before calling."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "Optimized image prompt: subject and action, setting, composition, lighting, style, palette",
+                },
+                "size": {
+                    "type": "string",
+                    "description": (
+                        "Image size. Default 1024x1024; portrait 768x1344 or 864x1152; "
+                        "landscape 1344x768, 1152x864 or 1440x720."
+                    ),
+                },
+                "save_to": {
+                    "type": "string",
+                    "description": "Optional absolute target path, e.g. C:\\Users\\me\\Desktop\\cat.png. Defaults to the real Desktop.",
+                },
+                "model": {"type": "string", "description": "CogView model name, default cogview-3-flash"},
+            },
+            "required": ["prompt"],
+        },
+    },
     # ─── Tool search (deferred tool loader) ─────────────────────
     {
         "name": "tool_search",
@@ -836,8 +868,8 @@ def check_permission(
                     f"完成后再调用 exit_plan_mode。不要向用户声称已保存。"
                 ),
             }
-        if tool_name in ("run_shell", "http_request"):
-            return {"action": "deny", "message": f"计划模式下禁止执行 {tool_name}（只读分析阶段不发起外部请求）"}
+        if tool_name in ("run_shell", "http_request", "generate_image"):
+            return {"action": "deny", "message": f"计划模式下禁止执行 {tool_name}（只读分析阶段不发起外部请求、不写文件）"}
 
     if tool_name in ("enter_plan_mode", "exit_plan_mode"):
         return {"action": "allow"}
@@ -867,6 +899,10 @@ def check_permission(
         # 每条外部请求都可能把数据（含密钥）发出去，必须逐次确认。
         needs_confirm = True
         confirm_message = f"外部请求：{str(inp.get('method') or 'GET').upper()} {inp.get('url', '')}"
+    elif tool_name == "generate_image":
+        # 一次确认覆盖"生成 + 下载落盘"，避免同一任务被拆成两次授权。
+        needs_confirm = True
+        confirm_message = f"生成图片（CogView）：{str(inp.get('prompt') or '')[:60]}"
 
     if needs_confirm:
         if mode == "dontAsk":
@@ -878,6 +914,159 @@ def check_permission(
 
 
 
+
+
+# CogView 图片生成：一次工具调用完成"POST 生成 → GET 下载落盘"，
+# key 只从环境变量读取，不进入模型上下文。
+COGVIEW_SIZES = (
+    "1024x1024",
+    "768x1344", "864x1152",
+    "1344x768", "1152x864", "1440x720", "720x1440",
+)
+_COGVIEW_ENDPOINT = "https://open.bigmodel.cn/api/paas/v4/images/generations"
+
+
+def _image_slug(prompt: str) -> str:
+    text = str(prompt or "")
+    words = re.findall(r"[A-Za-z0-9]+", text)[:4]
+    if words:
+        return "-".join(w.lower() for w in words)[:40]
+    # 中文提示词没有 ASCII 词；不回退按汉字截取的话会全部塌缩成 image，互相覆盖。
+    cjk = "".join(re.findall(r"[\u4e00-\u9fff]+", text))[:8]
+    return cjk or "image"
+
+
+def _unique_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+    for index in range(2, 100):
+        candidate = path.with_name(f"{path.stem}-{index}{path.suffix}")
+        if not candidate.exists():
+            return candidate
+    return path.with_name(f"{path.stem}-{os.getpid()}{path.suffix}")
+
+
+def _resolve_image_key() -> str:
+    # 正常情况下 main.py 启动时已加载 .env；这里再兜底一次，避免直接调用工具时拿不到 key。
+    key = (os.environ.get("OPENAI_API_KEY") or os.environ.get("BIGMODEL_API_KEY") or "").strip()
+    if key:
+        return key
+    try:
+        from dotenv import find_dotenv, load_dotenv
+
+        load_dotenv(find_dotenv(usecwd=True), override=False)
+    except Exception:
+        return ""
+    return (os.environ.get("OPENAI_API_KEY") or os.environ.get("BIGMODEL_API_KEY") or "").strip()
+
+
+def _sniff_image_ext(path: str) -> str:
+    # CogView 的 CDN 会返回 .png 结尾的 URL，但实际字节可能是 JPEG，落盘后按真实格式纠正。
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(12)
+    except OSError:
+        return ""
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if head.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "webp"
+    if head[:3] == b"GIF":
+        return "gif"
+    return ""
+
+
+async def _generate_image(inp: dict) -> str:
+    from .online_tools import http_request
+
+    prompt = str(inp.get("prompt") or "").strip()
+    if not prompt:
+        return "Error: generate_image 需要 prompt（优化后的提示词）"
+    model = str(inp.get("model") or "cogview-3-flash").strip()
+    size = str(inp.get("size") or "1024x1024").strip()
+    if size not in COGVIEW_SIZES:
+        return f"Error: 不支持的 size {size!r}。可选：{', '.join(COGVIEW_SIZES)}"
+
+    api_key = _resolve_image_key()
+    if not api_key:
+        return "Error: 未找到 OPENAI_API_KEY，无法调用 CogView。请在 .env 中配置后重启。"
+
+    save_to = str(inp.get("save_to") or "").strip()
+    auto_path = not save_to
+    if save_to:
+        bad = next((c for c in '<>"|?*' if c in save_to), None)
+        if bad:
+            return (
+                f"Error: save_to 含 Windows 非法字符 {bad!r}，无法创建文件。"
+                "请改用真实绝对路径或 ~/Desktop/<name>.png"
+            )
+        try:
+            # 目标文件是本次新建的，不能要求它已经存在。
+            save_to = str(_resolve_tool_path(save_to, must_exist=False).resolve())
+        except Exception as e:
+            return f"Error: invalid save_to path: {e}"
+    else:
+        from .prompt import desktop_path
+
+        save_to = str(desktop_path() / f"{_image_slug(prompt)}.png")
+
+    payload: dict = {"model": model, "prompt": prompt, "size": size}
+    size_sent = True
+    last_error = ""
+    for attempt in range(2):
+        result = await http_request(
+            method="POST",
+            url=_COGVIEW_ENDPOINT,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json_body=payload,
+            timeout=180,
+        )
+        status_line, _, body = result.partition("\n")
+        if status_line.startswith("HTTP 200"):
+            try:
+                image_url = json.loads(body)["data"][0]["url"]
+            except Exception:
+                return f"Error: 无法解析 CogView 响应：{_truncate_result(body)}"
+            break
+
+        last_error = result.strip()
+        # 4xx 是参数或鉴权问题，盲目重试只会浪费时间；429 和 5xx 才有重试价值。
+        if attempt == 0 and (status_line.startswith("HTTP 429") or status_line.startswith("HTTP 5")):
+            continue
+        # 部分模型不接受 size，去掉该字段再试一次。
+        if attempt == 0 and size_sent and status_line.startswith("HTTP 4"):
+            size_sent = False
+            payload.pop("size", None)
+            continue
+        return f"Error: CogView 返回 {last_error}"
+
+    # 统一先落到 .part 暂存名，再按真实字节格式定后缀并避开已有文件，任何情况下都不覆盖旧图。
+    staging = str(_unique_path(Path(save_to).with_name(f"{Path(save_to).stem}.part")))
+    download = await http_request(method="GET", url=image_url, timeout=180, save_to=staging)
+    if "Saved" not in download:
+        return f"Error: 图片已生成但下载失败：{download.strip()}\nURL: {image_url}"
+
+    actual = _sniff_image_ext(staging)
+    final = _unique_path(Path(staging).with_suffix(f".{actual or 'png'}"))
+    try:
+        Path(staging).replace(final)
+        save_to = str(final)
+    except OSError:
+        save_to = staging
+    try:
+        byte_size = os.path.getsize(save_to)
+    except OSError:
+        byte_size = 0
+
+    return (
+        f"Saved {byte_size} bytes to {save_to}\n"
+        f"Model: {model}\n"
+        f"Size: {payload.get('size', 'default')}\n"
+        f"Format: {actual or 'unknown'}\n"
+        f"Prompt: {prompt}"
+    )
 
 
 #----------------执行工具调用-----------------------
@@ -980,6 +1169,12 @@ async def execute_tool(
             return _truncate_result(result)
         except Exception as e:
             return f"Error getting web content: {str(e)}"
+
+    if name == "generate_image":
+        try:
+            return await _generate_image(inp)
+        except Exception as e:
+            return f"Error in generate_image: {e}"
 
     if name == "http_request":
         from .online_tools import http_request
