@@ -27,21 +27,27 @@ This skill only works because Lily has the `http_request` tool; it never fabrica
 
 ## 2. Resolve the API key
 
-Ask the user for the key only if it is not already available. Do not guess and do not
-invent an endpoint.
+Do not call the API before you have a key value. Do not guess one.
 
-- If the key was provided earlier in this conversation, reuse it.
-- Otherwise ask: "请提供 BigModel 的 API Key（或告诉我它在哪个环境变量/文件里）".
-- Never echo the full key back. When mentioning it, mask it as `sk-...` plus the last 4 chars.
+- If the user already gave the key in this conversation, reuse it.
+- Otherwise read the project `.env` file: `read_file` with the path `.env`, then take the value of
+  `OPENAI_API_KEY`. If that fails, ask the user: "请提供 BigModel 的 API Key".
+- Never echo the full key. Mask it as `sk-...` plus the last 4 chars.
 
 ## 3. Call the API
 
-Call `http_request` with:
+Send exactly this call — `method` MUST be `POST` (a GET returns
+"Request method 'GET' not supported", and a missing Authorization header returns HTTP 401):
 
-- method: `POST`
-- url: `https://open.bigmodel.cn/api/paas/v4/images/generations`
-- headers: `{"Authorization": "Bearer <api_key>", "Content-Type": "application/json"}`
-- json_body: `{"model": "<model>", "prompt": "<prompt>"}`
+```
+http_request
+  method:   POST
+  url:      https://open.bigmodel.cn/api/paas/v4/images/generations
+  headers:  {"Authorization": "Bearer <api_key>", "Content-Type": "application/json"}
+  json_body: {"model": "<model>", "prompt": "<prompt>"}
+```
+
+Copy all four fields into the tool call. Omitting `method` or `headers` fails.
 
 Each `http_request` call requires user confirmation. Do not retry more than once on failure.
 

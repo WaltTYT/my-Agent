@@ -143,11 +143,13 @@ def test_http_request_without_save_to_marks_pending_download(isolated_env, monke
     agent._read_file_state = {}
     agent._mcp_manager = type("M", (), {"is_mcp_tool": lambda self, name: False})()
 
-    asyncio.run(agent._execute_tool_call("http_request", {"url": "https://api.example.com/gen"}))
+    asyncio.run(agent._execute_tool_call(
+        "http_request", {"method": "POST", "url": "https://api.example.com/gen"}
+    ))
     assert agent._pending_download_url == "https://example.com/a.png"
 
     asyncio.run(agent._execute_tool_call(
-        "http_request", {"url": "https://example.com/a.png", "save_to": "~/Desktop/a.png"}
+        "http_request", {"method": "GET", "url": "https://example.com/a.png", "save_to": "~/Desktop/a.png"}
     ))
     assert agent._pending_download_url is None
 

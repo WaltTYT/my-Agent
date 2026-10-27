@@ -242,7 +242,7 @@ def test_save_to_rejects_placeholder_path(monkeypatch):
 
     result = asyncio.run(tools.execute_tool(
         "http_request",
-        {"url": "https://img.example/1.png", "save_to": r"C:\Users\<user>\Desktop\cat.png"},
+        {"method": "GET", "url": "https://img.example/1.png", "save_to": r"C:\Users\<user>\Desktop\cat.png"},
     ))
 
     assert "非法字符" in result
@@ -275,7 +275,21 @@ def test_save_to_expands_home(monkeypatch, tmp_path):
 
     asyncio.run(tools.execute_tool(
         "http_request",
-        {"url": "https://img.example/1.png", "save_to": "~/Desktop/cat.png"},
+        {"method": "GET", "url": "https://img.example/1.png", "save_to": "~/Desktop/cat.png"},
     ))
 
     assert captured["save_to"] == str(tmp_path / "Desktop" / "cat.png")
+
+
+def test_http_request_requires_explicit_method():
+    """漏填 method 不能静默退化成 GET，否则生成类接口会被调成方法不支持。"""
+    import asyncio
+
+    from agents import tools
+
+    result = asyncio.run(tools.execute_tool(
+        "http_request", {"url": "https://open.bigmodel.cn/api/paas/v4/images/generations"}
+    ))
+
+    assert "method" in result
+    assert "POST" in result

@@ -311,7 +311,10 @@ tool_definitions: list[ToolDef] = [
                 "method": {
                     "type": "string",
                     "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"],
-                    "description": "HTTP method, defaults to GET",
+                    "description": (
+                        "HTTP method. Always state it explicitly. Use POST for creation or generation "
+                        "endpoints that accept a JSON body; GET only for plain reads."
+                    ),
                 },
                 "url": {"type": "string", "description": "Full http:// or https:// URL"},
                 "headers": {
@@ -327,7 +330,7 @@ tool_definitions: list[ToolDef] = [
                     "description": "Optional file path. When set, the raw response bytes are written here instead of being returned as text.",
                 },
             },
-            "required": ["url"],
+            "required": ["method", "url"],
         },
     },
     # ─── Tool search (deferred tool loader) ─────────────────────
@@ -983,6 +986,13 @@ async def execute_tool(
         url = (inp.get("url") or "").strip()
         if not url:
             return "Error: url is required for http_request"
+        # 不静默退回 GET：模型漏填 method 时若默认成 GET，会把生成类接口调成"方法不支持"。
+        method = (inp.get("method") or "").strip().upper()
+        if not method:
+            return (
+                "Error: http_request 必须显式指定 method（GET/POST/PUT/PATCH/DELETE/HEAD）。"
+                "创建或生成类接口需用 POST。"
+            )
         save_to = inp.get("save_to")
         if save_to:
             bad = next((c for c in '<>"|?*' if c in str(save_to)), None)
@@ -1001,7 +1011,7 @@ async def execute_tool(
                 return f"Error: invalid save_to path: {e}"
         try:
             return _truncate_result(await http_request(
-                method=inp.get("method", "GET"),
+                method=method,
                 url=url,
                 headers=inp.get("headers"),
                 json_body=inp.get("json_body"),
