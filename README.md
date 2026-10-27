@@ -65,7 +65,7 @@ MODELS=glm-4.7-flash,glm-4.6v-flash,glm-4-flash
 | `/skill-create <名称>` | 创建技能 |
 | `/skill-stats` | 查看技能进化统计 |
 | `/memory` | 列出长期记忆 |
-| `/model` | 查看当前模型和候选列表；`/model <名称>` 切换模型 |
+| `/model` | 查看当前模型和候选列表；`/model <名称>` 切换模型（写入 `.env`，重启后保留） |
 | `/compact` | 压缩当前上下文 |
 | `exit` | 退出会话 |
 

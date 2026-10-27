@@ -8,6 +8,7 @@ import os
 import re
 import signal
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
@@ -92,6 +93,25 @@ def _load_env_file() -> None:
         load_dotenv(env_path, override=False)
     else:
         load_dotenv(override=False)
+
+
+def _persist_model(model: str) -> bool:
+    """把 /model 的选择写回 .env 的 MODEL 行，让下次启动继续使用。"""
+    env_path = find_dotenv(usecwd=True) or str(Path.cwd() / ".env")
+    path = Path(env_path)
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+        for i, line in enumerate(lines):
+            if re.match(r"\s*MODEL\s*=", line):
+                lines[i] = f"MODEL={model}"
+                break
+        else:
+            lines.append(f"MODEL={model}")
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except OSError:
+        return False
+    os.environ["MODEL"] = model
+    return True
 
 
 def _available_models(current: str) -> list[str]:
@@ -330,7 +350,10 @@ async def run_repl(agent: Agent) -> None:
                 print_info("\n".join(lines))
                 continue
             agent.set_model(requested)
-            print_info(f"已切换模型：{agent.model}")
+            if _persist_model(agent.model):
+                print_info(f"已切换模型：{agent.model}（已保存，下次启动继续使用）")
+            else:
+                print_warning(f"已切换模型：{agent.model}（写入 .env 失败，仅本次会话生效）")
             continue
         if inp == "/plans" or inp.startswith("/plans "):
             _show_plans(inp[len("/plans"):].strip())
