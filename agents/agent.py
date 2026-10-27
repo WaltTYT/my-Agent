@@ -872,6 +872,9 @@ class Agent:
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
+    async def close(self) -> None:
+        await self._mcp_manager.disconnect_all()
+
     def _pop_pending_skill_extraction_window(self, next_user_feedback: str) -> dict[str, Any] | None:
         pending = self._pending_skill_extraction_window
         self._pending_skill_extraction_window = None

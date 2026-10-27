@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 import os
 import re
 import signal
@@ -280,6 +281,20 @@ async def _read_user_line() -> str:
 
     threading.Thread(target=_worker, daemon=True).start()
     return await future
+
+
+async def _shutdown_agent(agent: Agent) -> None:
+    """退出前关掉 MCP 子进程与联网会话，避免 unclosed transport 和 node 残留。"""
+    from .online_tools import close_online_tools
+
+    try:
+        await agent.close()
+    except Exception as exc:
+        logging.warning("MCP 连接关闭失败：%s", exc)
+    try:
+        await close_online_tools()
+    except Exception as exc:
+        logging.warning("联网工具关闭失败：%s", exc)
 
 
 async def run_repl(agent: Agent) -> None:
@@ -580,11 +595,15 @@ async def run_repl(agent: Agent) -> None:
             if "abort" not in str(e).lower():
                 print_error(str(e))
     await agent.drain_background_skill_tasks()
+    await _shutdown_agent(agent)
 
 
 async def run_one_shot(agent: Agent, prompt: str) -> None:
-    await agent.chat(prompt)
-    await agent.drain_background_skill_tasks()
+    try:
+        await agent.chat(prompt)
+    finally:
+        await agent.drain_background_skill_tasks()
+        await _shutdown_agent(agent)
 
 
 def main() -> None:
